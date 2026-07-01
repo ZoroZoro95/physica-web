@@ -501,7 +501,20 @@ function splitInlineMath(value: string): Array<{ text: string; math: boolean }> 
 
 function looksLikeEquationWithProse(value: string) {
   const lowered = ` ${value.toLowerCase()} `;
+  const relation = value.match(/^(.*?)\s*(?:=|>=|<=)\s*(.*)$/);
+  if (relation) {
+    const lhs = relation[1].trim();
+    const rhs = relation[2].trim();
+    if (/\s/.test(lhs) && !/[+\-*/^_()√\\]/.test(lhs)) return true;
+    if (/\b(above|below|horizontal|vertical|impact|speed|angle|range|height|time)\b/i.test(rhs) && !/[+\-*/^_()√\\]/.test(rhs)) {
+      return true;
+    }
+  }
   return /\b(the|then|root|gives|because|previous|equation|physical|later|instant|component|relation|substitute|known|values)\b/.test(lowered);
+}
+
+function AnswerMathText({ value }: { value: string }) {
+  return <RichMathText value={value} />;
 }
 
 function MatchedOptionText({
@@ -1167,7 +1180,7 @@ function ExtractionReviewScreen({
             )}
             {solveResult.answer && (
               <div style={{ fontSize: 15, color: R.text, marginBottom: 6, fontWeight: 650 }}>
-                Answer: <MathText value={solveResult.answer} />
+                Answer: <AnswerMathText value={solveResult.answer} />
                 <MatchedOptionText matchedOption={solveResult.matched_option} options={extracted.options} />
               </div>
             )}
@@ -1524,7 +1537,7 @@ function SolutionPlayer({
             overflow: "hidden",
             textOverflow: "ellipsis",
           }}>
-            Answer: <MathText value={playback.solveResult.answer ?? ""} />
+            Answer: <AnswerMathText value={playback.solveResult.answer ?? ""} />
             <MatchedOptionText matchedOption={playback.solveResult.matched_option} options={playback.options} />
           </div>
         </div>
@@ -1920,7 +1933,7 @@ function TextbookSolution({
 
       <TextbookSectionTitle>Final Answer</TextbookSectionTitle>
       <BoxedAnswer>
-        <MathText value={finalAnswer || solveResult.answer || "See computed result above."} />
+        <AnswerMathText value={finalAnswer || solveResult.answer || "See computed result above."} />
         <MatchedOptionText matchedOption={solveResult.matched_option} options={options} />
       </BoxedAnswer>
     </div>
@@ -2423,7 +2436,7 @@ function TextbookStep({
       {result && (
         <>
           <p style={solutionParagraphStyle}>Therefore,</p>
-          <BoxedAnswer><MathText value={result} /></BoxedAnswer>
+          <BoxedAnswer><AnswerMathText value={result} /></BoxedAnswer>
         </>
       )}
       {step.trap_note && (
