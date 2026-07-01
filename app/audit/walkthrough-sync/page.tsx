@@ -102,10 +102,9 @@ type AuditPayload = {
 const API = (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
 
 export default function WalkthroughSyncAuditPage() {
-  const initialPayload = readInitialPayload();
   const [question, setQuestion] = useState("A ball is thrown at u=16 m/s at 53 deg. Find range and time of flight.");
-  const [rawJson, setRawJson] = useState(initialPayload.rawJson);
-  const [payload, setPayload] = useState<AuditPayload | null>(initialPayload.payload);
+  const [rawJson, setRawJson] = useState("");
+  const [payload, setPayload] = useState<AuditPayload | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [clientReady, setClientReady] = useState(false);

@@ -29,6 +29,11 @@ type SceneSpec2D = {
     acceleration: { x: number; y: number };
     duration: number;
   };
+  actors?: Array<{
+    id: string;
+    type?: string;
+    label?: string;
+  }>;
   live_vectors?: Array<{
     id: string;
     actor: string;
@@ -486,14 +491,16 @@ type TextbookAnnotations = {
 function isTextbookTemplateWorld(world: string, engineCase = "") {
   const normalizedWorld = world.toLowerCase();
   const normalizedEngineCase = engineCase.toLowerCase();
-  if (["level_ground", "height_launch", "incline", "two_inclines", "incline_collision", "staircase"].includes(normalizedWorld)) return true;
+  if (["level_ground", "height_launch", "incline", "two_inclines", "incline_collision", "staircase", "monkey_hunter", "multi_projectile"].includes(normalizedWorld)) return true;
   return [
     "wall_clearance_condition",
     "target_launch_angle_fixed_speed",
     "minimum_speed_to_hit_target",
     "two_projectile_collision_time",
+    "two_projectile_same_speed_comparison",
     "two_projectile_interception_time_ratio",
     "velocity_change_interval",
+    "monkey_hunter_condition",
   ].includes(normalizedEngineCase);
 }
 
@@ -580,6 +587,7 @@ function TextbookProjectileTemplate({
   const vectorIds = vectors.map(vector => vector.id);
   const template = textbookBeatTemplateKind(sceneSpec, stepId, vectors, activeHighlightIds, storyboardStep);
   const theta = sceneSpec.quantities?.theta ?? sceneSpec.quantities?.angle ?? sceneSpec.quantities?.launch_angle;
+  const thetaDeg = theta && Number.isFinite(theta.value) ? theta.value : 45;
   const thetaText = theta && Number.isFinite(theta.value) ? `θ = ${formatQuantityValue(theta.value, "°")}°` : "θ";
   const range = sceneSpec.quantities?.R ?? sceneSpec.quantities?.range;
   const rangeText = range && Number.isFinite(range.value)
@@ -615,6 +623,7 @@ function TextbookProjectileTemplate({
       data-audit-visible-vector-ids={vectorIds.join(",")}
       data-audit-highlight-ids={activeHighlightIds.join(",")}
       data-audit-template-kind={template}
+      data-audit-template-theta-deg={Number.isFinite(thetaDeg) ? roundTemplateNumber(thetaDeg) : undefined}
       style={{ position: "relative", width: "100%", height: "100%", minHeight: 0, overflow: "hidden", background: C.bg }}
     >
       <svg data-audit-board-svg="true" viewBox="0 0 100 62" preserveAspectRatio="xMidYMid meet" style={{ width: "100%", height: "100%", display: "block", background: C.bg }}>
@@ -623,10 +632,10 @@ function TextbookProjectileTemplate({
             <path d="M0,0 L6,3 L0,6 Z" fill={C.surface} />
           </marker>
         </defs>
-        <TextbookAuditHooks vectors={vectors} points={sceneSpec.geometry.points} surfaces={sceneSpec.geometry.surfaces ?? []} />
-        {template === "launch-components" && <LaunchComponentsTemplate markerId={markerId} thetaText={thetaText} />}
+        <TextbookAuditHooks vectors={vectors} points={sceneSpec.geometry.points} surfaces={sceneSpec.geometry.surfaces ?? []} actors={sceneSpec.actors ?? []} />
+        {template === "launch-components" && <LaunchComponentsTemplate markerId={markerId} thetaText={thetaText} thetaDeg={thetaDeg} />}
         {template === "apex" && <ApexTemplate markerId={markerId} heightText={heightText} />}
-        {template === "descent-components" && <DescentComponentsTemplate markerId={markerId} thetaText={thetaText} />}
+        {template === "descent-components" && <DescentComponentsTemplate markerId={markerId} thetaText={thetaText} thetaDeg={thetaDeg} />}
         {template === "same-height" && <SameHeightTemplate markerId={markerId} />}
         {template === "time-flight" && <TimeFlightTemplate markerId={markerId} />}
         {template === "range" && <RangeTemplate markerId={markerId} rangeText={rangeText} />}
@@ -651,6 +660,10 @@ function TextbookProjectileTemplate({
         {template === "target-hit-time" && <TargetHitTemplate markerId={markerId} thetaText={thetaText} variant="time" answerText={finalAnswerText} />}
         {template === "minimum-speed-target-setup" && <MinimumSpeedTargetTemplate markerId={markerId} variant="setup" />}
         {template === "minimum-speed-target-result" && <MinimumSpeedTargetTemplate markerId={markerId} variant="result" answerText={finalAnswerText} />}
+        {template === "monkey-hunter-setup" && <MonkeyHunterTemplate markerId={markerId} variant="setup" speedText={speedText} heightText={heightText} />}
+        {template === "monkey-hunter-projectile-drop" && <MonkeyHunterTemplate markerId={markerId} variant="projectile-drop" speedText={speedText} heightText={heightText} />}
+        {template === "monkey-hunter-monkey-drop" && <MonkeyHunterTemplate markerId={markerId} variant="monkey-drop" speedText={speedText} heightText={heightText} />}
+        {template === "monkey-hunter-result" && <MonkeyHunterTemplate markerId={markerId} variant="result" speedText={speedText} heightText={heightText} />}
         {template === "position-at-time-setup" && <PositionAtTimeTemplate markerId={markerId} variant="setup" />}
         {template === "position-at-time-equations" && <PositionAtTimeTemplate markerId={markerId} variant="equations" />}
         {template === "position-at-time-result" && <PositionAtTimeTemplate markerId={markerId} variant="result" answerText={finalAnswerText} />}
@@ -662,6 +675,10 @@ function TextbookProjectileTemplate({
         {template === "two-projectile-time-a" && <TwoProjectileTemplate markerId={markerId} variant="time-a" />}
         {template === "two-projectile-time-b" && <TwoProjectileTemplate markerId={markerId} variant="time-b" />}
         {template === "two-projectile-collision" && <TwoProjectileTemplate markerId={markerId} variant="collision" answerText={finalAnswerText} />}
+        {template === "two-projectile-compare-setup" && <TwoProjectileComparisonTemplate markerId={markerId} variant="setup" sceneSpec={sceneSpec} />}
+        {template === "two-projectile-compare-time" && <TwoProjectileComparisonTemplate markerId={markerId} variant="time" sceneSpec={sceneSpec} />}
+        {template === "two-projectile-compare-height" && <TwoProjectileComparisonTemplate markerId={markerId} variant="height" sceneSpec={sceneSpec} />}
+        {template === "two-projectile-compare-range" && <TwoProjectileComparisonTemplate markerId={markerId} variant="range" sceneSpec={sceneSpec} />}
         {template === "velocity-change-setup" && <VelocityChangeTemplate markerId={markerId} variant="setup" />}
         {template === "velocity-change-what-changes" && <VelocityChangeTemplate markerId={markerId} variant="what-changes" />}
         {template === "velocity-change-delta" && <VelocityChangeTemplate markerId={markerId} variant="delta" />}
@@ -737,6 +754,10 @@ type TextbookBeatTemplate =
   | "target-hit-time"
   | "minimum-speed-target-setup"
   | "minimum-speed-target-result"
+  | "monkey-hunter-setup"
+  | "monkey-hunter-projectile-drop"
+  | "monkey-hunter-monkey-drop"
+  | "monkey-hunter-result"
   | "position-at-time-setup"
   | "position-at-time-equations"
   | "position-at-time-result"
@@ -748,6 +769,10 @@ type TextbookBeatTemplate =
   | "two-projectile-time-a"
   | "two-projectile-time-b"
   | "two-projectile-collision"
+  | "two-projectile-compare-setup"
+  | "two-projectile-compare-time"
+  | "two-projectile-compare-height"
+  | "two-projectile-compare-range"
   | "velocity-change-setup"
   | "velocity-change-what-changes"
   | "velocity-change-delta"
@@ -841,6 +866,12 @@ function textbookBeatTemplateKind(
     if (stepId.includes("solve_1") || tokens.includes("answer")) return "minimum-speed-target-result";
     return "minimum-speed-target-setup";
   }
+  if (engineCase === "monkey_hunter_condition" || world === "monkey_hunter") {
+    if (stepId.includes("solve_4") || stepId.includes("takeaway") || tokens.includes("answer") || tokens.includes("event:hit") || visualAction === "highlight_final_answer") return "monkey-hunter-result";
+    if (stepId.includes("solve_3") || tokens.includes("monkey drop") || tokens.includes("trajectory:monkey_drop") || tokens.includes("quantity:drop_monkey")) return "monkey-hunter-monkey-drop";
+    if (stepId.includes("solve_2") || tokens.includes("projectile drop") || tokens.includes("quantity:drop_projectile")) return "monkey-hunter-projectile-drop";
+    return "monkey-hunter-setup";
+  }
   if (engineCase === "level_ground_position_at_time") {
     if (stepId === "invariant") return "position-at-time-setup";
     if (stepId.includes("solve_1")) return "position-at-time-equations";
@@ -867,6 +898,16 @@ function textbookBeatTemplateKind(
     if (stepId.includes("solve_3") || visualAction === "highlight_collision" || tokens.includes("answer")) return "two-projectile-collision";
     if (stepId.includes("solve_2")) return "two-projectile-time-b";
     return "two-projectile-time-a";
+  }
+  if (engineCase === "two_projectile_same_speed_comparison") {
+    if (stepId === "invariant") return "two-projectile-compare-setup";
+    if (stepId.includes("solve_1")) return "two-projectile-compare-time";
+    if (stepId.includes("solve_2")) return "two-projectile-compare-height";
+    if (stepId.includes("solve_3") || tokens.includes("answer")) return "two-projectile-compare-range";
+    if (tokens.includes("sin(2theta)") || tokens.includes("sin(2θ)") || tokens.includes("range")) return "two-projectile-compare-range";
+    if (tokens.includes("sin^2") || tokens.includes("height")) return "two-projectile-compare-height";
+    if (tokens.includes("time") || tokens.includes("sin(theta)") || tokens.includes("sinθ")) return "two-projectile-compare-time";
+    return "two-projectile-compare-setup";
   }
   if (engineCase === "velocity_change_interval") {
     if (stepId === "delta_v" || tokens.includes("delta_v") || tokens.includes("acceleration over time") || tokens.includes("answer")) return "velocity-change-delta";
@@ -966,10 +1007,12 @@ function TextbookAuditHooks({
   vectors,
   points,
   surfaces,
+  actors,
 }: {
   vectors: NonNullable<SceneSpec2D["live_vectors"]>;
   points: Record<string, Point2>;
   surfaces: Array<Record<string, unknown>>;
+  actors: NonNullable<SceneSpec2D["actors"]>;
 }) {
   return (
     <g style={{ display: "none" }}>
@@ -991,6 +1034,11 @@ function TextbookAuditHooks({
           </g>
         );
       })}
+      {actors.map((actor, index) => (
+        <g key={actor.id} data-audit-actor-id={actor.id}>
+          <circle cx={index} cy={2} r={1} />
+        </g>
+      ))}
     </g>
   );
 }
@@ -999,6 +1047,7 @@ function TemplateArrow({ markerId, from, to, dashed = false, width = 0.62, audit
   return (
     <line
       data-audit-template-line-id={auditId}
+      data-audit-template-angle-deg={roundTemplateNumber(templateLineAngleDeg(from, to))}
       x1={from.x}
       y1={from.y}
       x2={to.x}
@@ -1040,12 +1089,38 @@ function degreesToRadians(degrees: number) {
   return (degrees * Math.PI) / 180;
 }
 
+function radiansToDegrees(radians: number) {
+  return (radians * 180) / Math.PI;
+}
+
+function roundTemplateNumber(value: number) {
+  return Number(value.toFixed(3));
+}
+
+function signedAngleDeg(degrees: number) {
+  if (!Number.isFinite(degrees)) return 45;
+  const normalized = ((degrees % 360) + 360) % 360;
+  return normalized > 180 ? normalized - 360 : normalized;
+}
+
+function templateLineAngleDeg(from: Point2, to: Point2) {
+  return signedAngleDeg(radiansToDegrees(Math.atan2(from.y - to.y, to.x - from.x)));
+}
+
 function pointAtAngle(from: Point2, length: number, angleDeg: number): Point2 {
   const radians = degreesToRadians(angleDeg);
   return {
     x: from.x + length * Math.cos(radians),
     y: from.y - length * Math.sin(radians),
   };
+}
+
+function templateAngleArcPoints(origin: Point2, radius: number, startDeg: number, endDeg: number, steps = 24) {
+  const sweep = signedAngleDeg(endDeg - startDeg);
+  return Array.from({ length: steps + 1 }, (_, index) => {
+    const angle = startDeg + (sweep * index) / steps;
+    return pointAtAngle(origin, radius, angle);
+  }).map(point => `${point.x},${point.y}`).join(" ");
 }
 
 function pointBetween(from: Point2, to: Point2, t: number): Point2 {
@@ -1075,24 +1150,41 @@ function descendingInclineFrame(alphaDeg: number) {
   return inclineSegment(-Math.abs(alphaDeg), start, length);
 }
 
-function LaunchComponentsTemplate({ markerId, thetaText }: { markerId: string; thetaText: string }) {
-  const o = { x: 31, y: 41 };
+function LaunchComponentsTemplate({ markerId, thetaText, thetaDeg }: { markerId: string; thetaText: string; thetaDeg: number }) {
+  const theta = signedAngleDeg(thetaDeg);
+  const radians = degreesToRadians(theta);
+  const horizontalSign = Math.cos(radians) < -0.02 ? -1 : 1;
+  const verticalSign = Math.sin(radians) < -0.02 ? -1 : 1;
+  const o = { x: horizontalSign < 0 ? 66 : 31, y: verticalSign < 0 ? 28 : 41 };
+  const uTip = pointAtAngle(o, 30, theta);
+  const uxTip = { x: uTip.x, y: o.y };
+  const uxLabel = pointBetween(o, uxTip, 0.5);
+  const uyLabel = pointBetween(uxTip, uTip, 0.5);
+  const uAnchor = horizontalSign < 0 ? "end" : "start";
+  const uxLabelAnchor = horizontalSign < 0 ? "end" : "start";
+  const uxLabelX = horizontalSign < 0 ? Math.min(o.x - 7, uxLabel.x + 2) : Math.max(o.x + 5, uxLabel.x - 2);
+  const uyLabelX = uxTip.x + horizontalSign * 7.0;
+  const uyLabelAnchor = horizontalSign > 0 ? "start" : "end";
+  const nearlyVertical = Math.abs(Math.cos(radians)) < 0.08;
+  const thetaLabelX = nearlyVertical ? o.x - 5.0 : o.x - horizontalSign * 13.0;
+  const thetaLabelY = o.y + (verticalSign > 0 ? -14.0 : 15.0);
+  const thetaLabelAnchor = nearlyVertical ? "end" : horizontalSign > 0 ? "start" : "end";
   return (
     <g>
       <TemplateArrow markerId={markerId} from={{ x: 10, y: 53 }} to={{ x: 92, y: 53 }} width={0.48} auditId="launch-x-axis" />
       <TemplateArrow markerId={markerId} from={{ x: 10, y: 53 }} to={{ x: 10, y: 11 }} width={0.48} auditId="launch-y-axis" />
       <TextbookSvgText x={93.5} y={55.2} text="X" size={6.2} audit={false} />
       <TextbookSvgText x={14.3} y={13.2} text="Y" size={6.2} audit={false} />
-      <path data-audit-template-line-id="launch-trajectory" d={`M ${o.x - 8} ${o.y + 11} C ${o.x - 3} ${o.y - 2}, ${o.x + 11} ${o.y - 15}, ${o.x + 28} ${o.y - 19}`} fill="none" stroke={C.surface} strokeWidth={0.56} />
       <TemplatePoint x={o.x} y={o.y} label="O" />
-      <TemplateArrow markerId={markerId} from={o} to={{ x: o.x + 24, y: o.y }} auditId="launch-ux" />
-      <TemplateArrow markerId={markerId} from={o} to={{ x: o.x, y: o.y - 23 }} auditId="launch-uy" />
-      <TemplateArrow markerId={markerId} from={o} to={{ x: o.x + 23, y: o.y - 28 }} dashed auditId="launch-u" />
-      <path d={`M ${o.x + 5.4} ${o.y} A 9 9 0 0 0 ${o.x + 8.1} ${o.y - 6.8}`} fill="none" stroke={C.surface} strokeWidth={0.5} />
-      <TextbookSvgText x={o.x + 4.0} y={58.8} text="uₓ = u cos θ" size={5.2} />
-      <TextbookSvgText x={o.x + 2.0} y={10.5} text="uᵧ = u sin θ" size={3.25} />
-      <TextbookSvgText x={o.x + 27.0} y={o.y - 31.0} text="u" size={5.1} />
-      <TextbookSvgText x={o.x + 10.8} y={o.y - 3.4} text={thetaText} size={3.0} />
+      <line x1={o.x} y1={o.y} x2={o.x + 18} y2={o.y} stroke={C.surface} strokeWidth={0.36} strokeDasharray="2 1.5" data-audit-template-line-id="launch-positive-x-reference" />
+      <TemplateArrow markerId={markerId} from={o} to={uxTip} auditId="launch-ux" />
+      <TemplateArrow markerId={markerId} from={uxTip} to={uTip} auditId="launch-uy" />
+      <TemplateArrow markerId={markerId} from={o} to={uTip} dashed auditId="launch-u" />
+      <polyline points={templateAngleArcPoints(o, 9, 0, theta)} fill="none" stroke={C.surface} strokeWidth={0.5} data-audit-template-line-id="launch-theta-arc" />
+      <TextbookSvgText x={uxLabelX} y={o.y + (verticalSign > 0 ? 8.5 : -5.0)} text="uₓ = u cos θ" size={4.45} anchor={uxLabelAnchor} />
+      <TextbookSvgText x={uyLabelX} y={uyLabel.y + (verticalSign > 0 ? -0.8 : 4.8)} text="uᵧ = u sin θ" size={3.6} anchor={uyLabelAnchor} />
+      <TextbookSvgText x={uTip.x + horizontalSign * 3.0} y={uTip.y + (verticalSign > 0 ? -2.0 : 5.0)} text="u" size={5.1} anchor={uAnchor} />
+      <TextbookSvgText x={thetaLabelX} y={thetaLabelY} text={thetaText} size={3.25} anchor={thetaLabelAnchor} />
     </g>
   );
 }
@@ -1114,19 +1206,30 @@ function ApexTemplate({ markerId, heightText }: { markerId: string; heightText: 
   );
 }
 
-function DescentComponentsTemplate({ markerId, thetaText }: { markerId: string; thetaText: string }) {
-  const p = { x: 42, y: 28 };
+function DescentComponentsTemplate({ markerId, thetaText, thetaDeg }: { markerId: string; thetaText: string; thetaDeg: number }) {
+  const theta = signedAngleDeg(thetaDeg);
+  const horizontalSign = Math.cos(degreesToRadians(theta)) < -0.02 ? -1 : 1;
+  const descentAngle = -Math.abs(theta || 35);
+  const p = { x: horizontalSign < 0 ? 58 : 42, y: 28 };
+  const uTip = pointAtAngle(p, 32, descentAngle);
+  const uxTip = { x: uTip.x, y: p.y };
+  const pathStart = { x: p.x - horizontalSign * 28, y: p.y - 16 };
+  const pathEnd = { x: p.x + horizontalSign * 34, y: p.y + 25 };
+  const uxLabel = pointBetween(p, uxTip, 0.5);
+  const uyLabel = pointBetween(uxTip, uTip, 0.5);
+  const thetaLabel = pointAtAngle(p, 13, descentAngle / 2);
   return (
     <g>
-      <path data-audit-template-line-id="descent-trajectory" d="M 16 15 C 32 19, 47 29, 76 54" fill="none" stroke={C.surface} strokeWidth={0.62} />
+      <path data-audit-template-line-id="descent-trajectory" d={`M ${pathStart.x} ${pathStart.y} C ${p.x - horizontalSign * 12} ${p.y - 8}, ${p.x + horizontalSign * 12} ${p.y + 9}, ${pathEnd.x} ${pathEnd.y}`} fill="none" stroke={C.surface} strokeWidth={0.62} />
       <TemplatePoint x={p.x} y={p.y} />
-      <TemplateArrow markerId={markerId} from={p} to={{ x: p.x + 25, y: p.y }} auditId="descent-ux" />
-      <TemplateArrow markerId={markerId} from={p} to={{ x: p.x, y: p.y + 20 }} auditId="descent-uy" />
-      <TemplateArrow markerId={markerId} from={p} to={{ x: p.x + 27, y: p.y + 25 }} dashed auditId="descent-u" />
-      <path d={`M ${p.x + 6.3} ${p.y} A 10 10 0 0 1 ${p.x + 10.4} ${p.y + 6.6}`} fill="none" stroke={C.surface} strokeWidth={0.5} />
-      <TextbookSvgText x={p.x + 8.2} y={p.y - 3.5} text="uₓ = u cos θ" size={5.2} />
-      <TextbookSvgText x={p.x + 2.8} y={p.y + 24.2} text="uᵧ" size={5.0} />
-      <TextbookSvgText x={p.x - 3.0} y={p.y + 9.0} text={thetaText.replace("θ = ", "")} size={5.0} anchor="end" />
+      <line x1={p.x} y1={p.y} x2={p.x + 18} y2={p.y} stroke={C.surface} strokeWidth={0.36} strokeDasharray="2 1.5" data-audit-template-line-id="descent-positive-x-reference" />
+      <TemplateArrow markerId={markerId} from={p} to={uxTip} auditId="descent-ux" />
+      <TemplateArrow markerId={markerId} from={uxTip} to={uTip} auditId="descent-uy" />
+      <TemplateArrow markerId={markerId} from={p} to={uTip} dashed auditId="descent-u" />
+      <polyline points={templateAngleArcPoints(p, 9, 0, descentAngle)} fill="none" stroke={C.surface} strokeWidth={0.5} data-audit-template-line-id="descent-theta-arc" />
+      <TextbookSvgText x={uxLabel.x} y={p.y - 4.5} text="uₓ = u cos θ" size={4.45} anchor="middle" />
+      <TextbookSvgText x={uyLabel.x + (horizontalSign > 0 ? 2.5 : -2.5)} y={uyLabel.y + 4.5} text="uᵧ" size={4.7} anchor={horizontalSign > 0 ? "start" : "end"} />
+      <TextbookSvgText x={thetaLabel.x} y={thetaLabel.y + 5.0} text={thetaText.replace("θ = ", "")} size={4.5} anchor="middle" />
     </g>
   );
 }
@@ -1399,7 +1502,7 @@ function TargetHitTemplate({ markerId, thetaText, variant, answerText = "" }: { 
       <path d={`M ${o.x + 6.2} ${o.y} A 9 9 0 0 0 ${o.x + 9.7} ${o.y - 6.6}`} fill="none" stroke={C.surface} strokeWidth={0.45} />
       <TextbookSvgText x={41.0} y={59.5} text={variant === "time" ? "solve for θ" : "x = uₓt"} size={4.0} audit={false} />
       <TextbookSvgText x={16.5} y={25.0} text="y" size={4.5} />
-      <TextbookSvgText x={69.0} y={20.0} text="target" size={4.5} />
+      <TextbookSvgText x={92.0} y={25.0} text="target" size={4.1} anchor="end" />
       {variant !== "time" && <TextbookSvgText x={29.0} y={48.0} text={thetaText} size={3.7} />}
       {variant === "setup" && <TextbookSvgText x={44.0} y={10.0} text="hit P(x, y)" size={4.8} audit={false} />}
       {variant === "equation" && (
@@ -1441,6 +1544,109 @@ function MinimumSpeedTargetTemplate({ markerId, variant, answerText = "" }: { ma
         <>
           <TextbookSvgText x={19.0} y={58.6} text="uₘᵢₙ² = g(y + √(x²+y²))" size={3.25} audit={false} />
           <TextbookSvgText x={94.0} y={60.6} text={`uₘᵢₙ = ${answerText || "9.48683 m/s"}`} size={3.45} anchor="end" />
+        </>
+      )}
+    </g>
+  );
+}
+
+type MonkeyHunterTemplateVariant = "setup" | "projectile-drop" | "monkey-drop" | "result";
+
+function MonkeyHunterTemplate({
+  markerId,
+  variant,
+  speedText,
+  heightText,
+}: {
+  markerId: string;
+  variant: MonkeyHunterTemplateVariant;
+  speedText: string;
+  heightText: string;
+}) {
+  const gun = { x: 20, y: 45 };
+  const monkeyStart = { x: 72, y: 20 };
+  const monkeyCurrent = { x: 72, y: 35 };
+  const aimAtProjectileX = 47;
+  const aimAtProjectileY = 32;
+  const projectileCurrent = variant === "result" ? monkeyCurrent : { x: aimAtProjectileX, y: 39 };
+  const showProjectileDrop = variant === "projectile-drop";
+  const showMonkeyDrop = variant === "monkey-drop" || variant === "result";
+  const showProjectile = variant === "projectile-drop" || variant === "result";
+  const showProjectilePath = variant !== "setup" && variant !== "monkey-drop";
+  return (
+    <g>
+      <TemplateArrow markerId={markerId} from={{ x: 8, y: 54 }} to={{ x: 94, y: 54 }} width={0.46} auditId="monkey-hunter-ground" />
+      <line x1={82} y1={54} x2={82} y2={14} stroke={C.surface} strokeWidth={1.05} data-audit-template-line-id="monkey-hunter-tree-trunk" />
+      <line x1={63} y1={18} x2={87} y2={18} stroke={C.surface} strokeWidth={0.84} strokeLinecap="round" data-audit-template-line-id="monkey-hunter-branch" />
+      <line
+        x1={gun.x}
+        y1={gun.y}
+        x2={monkeyStart.x}
+        y2={monkeyStart.y}
+        stroke={C.surface}
+        strokeWidth={0.46}
+        strokeDasharray="2.2 1.8"
+        data-audit-template-line-id="monkey-hunter-aim-line"
+      />
+
+      <g data-audit-entity="hunter">
+        <circle cx={14.2} cy={39.5} r={3.0} fill={C.bg} stroke={C.surface} strokeWidth={0.68} />
+        <line x1={14.2} y1={42.6} x2={14.2} y2={51.0} stroke={C.surface} strokeWidth={0.72} />
+        <line x1={14.2} y1={45.2} x2={gun.x} y2={gun.y} stroke={C.surface} strokeWidth={0.68} />
+        <line x1={gun.x - 2.8} y1={gun.y + 0.6} x2={gun.x + 8.7} y2={gun.y - 5.1} stroke={C.surface} strokeWidth={1.0} data-audit-template-line-id="monkey-hunter-gun" />
+        <TextbookSvgText x={7.8} y={59.3} text="hunter" size={3.9} auditKey="monkey-hunter-label:hunter" />
+      </g>
+
+      <g data-audit-entity="monkey">
+        <circle cx={monkeyStart.x} cy={monkeyStart.y + 4.2} r={2.7} fill={C.bg} stroke={C.surface} strokeWidth={0.66} opacity={showMonkeyDrop ? 0.34 : 1} />
+        <line x1={monkeyStart.x} y1={monkeyStart.y + 1.6} x2={monkeyStart.x} y2={monkeyStart.y + 8.6} stroke={C.surface} strokeWidth={0.58} opacity={showMonkeyDrop ? 0.34 : 1} />
+        <path d={`M ${monkeyStart.x + 2.2} ${monkeyStart.y + 7.4} C ${monkeyStart.x + 6.2} ${monkeyStart.y + 9.0}, ${monkeyStart.x + 6.2} ${monkeyStart.y + 13.5}, ${monkeyStart.x + 2.7} ${monkeyStart.y + 14.5}`} fill="none" stroke={C.surface} strokeWidth={0.48} opacity={showMonkeyDrop ? 0.34 : 1} />
+        {showMonkeyDrop && (
+          <>
+            <circle cx={monkeyCurrent.x} cy={monkeyCurrent.y} r={2.9} fill={C.bg} stroke={C.surface} strokeWidth={0.68} />
+            <line x1={monkeyCurrent.x} y1={monkeyCurrent.y + 2.7} x2={monkeyCurrent.x} y2={monkeyCurrent.y + 8.7} stroke={C.surface} strokeWidth={0.58} />
+          </>
+        )}
+        <TextbookSvgText x={61.0} y={9.8} text="monkey" size={4.1} anchor="end" auditKey="monkey-hunter-label:monkey" />
+      </g>
+
+      {showProjectilePath && (
+        <path data-audit-template-line-id="monkey-hunter-projectile-path" d={`M ${gun.x} ${gun.y} C 34 40, 53 35, ${monkeyCurrent.x} ${monkeyCurrent.y}`} fill="none" stroke={C.surface} strokeWidth={0.58} />
+      )}
+      {showProjectile && <circle data-audit-entity="projectile" cx={projectileCurrent.x} cy={projectileCurrent.y} r={2.25} fill={C.surface} />}
+
+      {showProjectileDrop && (
+        <>
+          <line x1={aimAtProjectileX} y1={aimAtProjectileY} x2={aimAtProjectileX} y2={projectileCurrent.y} stroke={C.surface} strokeWidth={0.44} strokeDasharray="1.8 1.5" data-audit-template-line-id="monkey-hunter-projectile-drop" />
+          <TextbookSvgText x={30.0} y={25.7} text="projectile drop" size={3.55} audit={false} />
+          <TextbookSvgText x={50.8} y={44.0} text="½gt²" size={3.7} />
+        </>
+      )}
+
+      {showMonkeyDrop && (
+        <>
+          <TemplateArrow markerId={markerId} from={{ x: monkeyStart.x + 6.2, y: monkeyStart.y + 6.0 }} to={{ x: monkeyCurrent.x + 6.2, y: monkeyCurrent.y + 1.0 }} width={0.42} auditId="monkey-hunter-monkey-drop" />
+          {variant === "monkey-drop" && (
+            <>
+              <TextbookSvgText x={58.0} y={42.0} text="monkey" size={3.45} audit={false} />
+              <TextbookSvgText x={58.0} y={47.8} text="drop = ½gt²" size={3.45} />
+            </>
+          )}
+        </>
+      )}
+
+      {variant === "setup" && (
+        <>
+          <TextbookSvgText x={37.0} y={29.5} text="aims at monkey" size={3.7} audit={false} />
+          <TextbookSvgText x={7.0} y={29.5} text={`u = ${speedText}`} size={3.9} />
+          <TextbookSvgText x={90.0} y={59.2} text={heightText} size={3.7} anchor="end" />
+        </>
+      )}
+      {variant === "result" && (
+        <>
+          <circle cx={monkeyCurrent.x} cy={monkeyCurrent.y} r={4.2} fill="none" stroke={C.surface} strokeWidth={0.62} data-audit-template-line-id="monkey-hunter-hit-ring" />
+          <TextbookSvgText x={23.5} y={19.5} text="same ½gt² drop" size={3.65} audit={false} />
+          <TextbookSvgText x={63.0} y={59.3} text="arrives first ⇒ hit" size={3.65} anchor="middle" audit={false} />
         </>
       )}
     </g>
@@ -1560,6 +1766,92 @@ function TwoProjectileTemplate({ markerId, variant, answerText = "" }: { markerI
       )}
     </g>
   );
+}
+
+type TwoProjectileComparisonVariant = "setup" | "time" | "height" | "range";
+
+function TwoProjectileComparisonTemplate({
+  markerId,
+  variant,
+  sceneSpec,
+}: {
+  markerId: string;
+  variant: TwoProjectileComparisonVariant;
+  sceneSpec: SceneSpec2D;
+}) {
+  const q = sceneSpec.quantities ?? {};
+  const angle1 = q.angle1?.value ?? 30;
+  const angle2 = q.angle2?.value ?? 60;
+  const time1 = quantityText(q.T1, "T₁", "s");
+  const time2 = quantityText(q.T2, "T₂", "s");
+  const height1 = quantityText(q.H1, "H₁", "m");
+  const height2 = quantityText(q.H2, "H₂", "m");
+  const range1 = quantityText(q.R1, "R₁", "m");
+  const range2 = quantityText(q.R2, "R₂", "m");
+  const speed = quantityText(q.u, "u", "m/s").replace("u = ", "");
+  const o = { x: 14, y: 51 };
+  const land = { x: 88, y: 51 };
+  const lowApex = { x: 47, y: 33 };
+  const highApex = { x: 47, y: 12 };
+  const highlightTime = variant === "time";
+  const highlightHeight = variant === "height";
+  const highlightRange = variant === "range";
+  return (
+    <g>
+      <TemplateArrow markerId={markerId} from={{ x: 8, y: 54 }} to={{ x: 94, y: 54 }} width={0.46} auditId="two-compare-ground" />
+      <path data-audit-template-line-id="two-compare-low-path" d={`M ${o.x} ${o.y} C 30 36, 62 36, ${land.x} ${land.y}`} fill="none" stroke={C.surface} strokeWidth={0.62} />
+      <path data-audit-template-line-id="two-compare-high-path" d={`M ${o.x} ${o.y} C 28 7, 63 7, ${land.x} ${land.y}`} fill="none" stroke={C.surface} strokeWidth={0.62} strokeDasharray="2.4 1.8" />
+      <TemplatePoint x={o.x} y={o.y} label="O" />
+      <TemplatePoint x={land.x} y={land.y} label="B" />
+      <TemplateArrow markerId={markerId} from={o} to={{ x: 31, y: 41 }} width={0.5} auditId="two-compare-u1" />
+      <TemplateArrow markerId={markerId} from={o} to={{ x: 24, y: 30 }} width={0.5} auditId="two-compare-u2" />
+      <TextbookSvgText x={28.0} y={48.5} text={`θ₁ = ${formatQuantityValue(angle1, "°")}°`} size={3.45} />
+      <TextbookSvgText x={9.0} y={24.0} text={`θ₂ = ${formatQuantityValue(angle2, "°")}°`} size={3.45} />
+      <TextbookSvgText x={8.5} y={10.5} text={`same u = ${speed}`} size={3.45} audit={false} />
+
+      {variant === "setup" && (
+        <>
+          <TextbookSvgText x={60.0} y={31.0} text="lower angle" size={3.35} audit={false} />
+          <TextbookSvgText x={57.0} y={13.0} text="higher angle" size={3.35} audit={false} />
+        </>
+      )}
+
+      {highlightTime && (
+        <>
+          <TextbookSvgText x={70.0} y={15.2} text="T ∝ sin θ" size={4.0} />
+          <TextbookSvgText x={58.0} y={60.5} text={time1} size={3.4} />
+          <TextbookSvgText x={68.0} y={9.0} text={time2} size={3.55} />
+        </>
+      )}
+
+      {highlightHeight && (
+        <>
+          <line x1={lowApex.x} y1={lowApex.y} x2={lowApex.x} y2={54} stroke={C.surface} strokeWidth={0.42} strokeDasharray="2 1.4" data-audit-template-line-id="two-compare-h1" />
+          <line x1={highApex.x + 7} y1={highApex.y} x2={highApex.x + 7} y2={54} stroke={C.surface} strokeWidth={0.42} strokeDasharray="2 1.4" data-audit-template-line-id="two-compare-h2" />
+          <TextbookSvgText x={8.0} y={60.5} text={height1} size={3.4} />
+          <TextbookSvgText x={62.0} y={9.0} text={height2} size={3.5} />
+          <TextbookSvgText x={62.0} y={59.5} text="H ∝ sin²θ" size={3.65} anchor="middle" />
+        </>
+      )}
+
+      {highlightRange && (
+        <>
+          <line x1={o.x} y1={57.0} x2={land.x} y2={57.0} stroke={C.surface} strokeWidth={0.48} data-audit-template-line-id="two-compare-range-bracket" />
+          <line x1={o.x} y1={54.8} x2={o.x} y2={59.4} stroke={C.surface} strokeWidth={0.48} data-audit-template-line-id="two-compare-range-left" />
+          <line x1={land.x} y1={54.8} x2={land.x} y2={59.4} stroke={C.surface} strokeWidth={0.48} data-audit-template-line-id="two-compare-range-right" />
+          <TextbookSvgText x={50.0} y={61.3} text="R₁ = R₂" size={3.45} anchor="middle" />
+          <TextbookSvgText x={51.0} y={7.8} text="sin60° = sin120°" size={3.55} />
+          <TextbookSvgText x={68.0} y={14.2} text={`${range1} = ${range2.replace("R₂ = ", "")}`} size={3.1} anchor="middle" audit={false} />
+        </>
+      )}
+    </g>
+  );
+}
+
+function quantityText(quantity: { value: number; unit?: string } | undefined, label: string, fallbackUnit: string) {
+  if (!quantity || !Number.isFinite(quantity.value)) return `${label}`;
+  const unit = unitForQuantity(quantity.unit || fallbackUnit);
+  return `${label} = ${formatQuantityValue(quantity.value, unit)}${unit}`;
 }
 
 type VelocityChangeTemplateVariant = "setup" | "what-changes" | "delta";
@@ -1888,7 +2180,7 @@ function InclineMotionResolutionTemplate({
           <TemplateArrow markerId={markerId} from={p} to={pointAtAngle(p, 25, frame.angleDeg + 90)} auditId="incline-resolution-u-normal" />
           <TemplateArrow markerId={markerId} from={gOrigin} to={{ x: gOrigin.x, y: gOrigin.y + 23 }} width={0.58} auditId="incline-resolution-g" />
           <TemplateArrow markerId={markerId} from={gOrigin} to={gCosTip} width={0.46} auditId="incline-resolution-g-cos" />
-          <TextbookSvgText x={gOrigin.x + 4.0} y={gOrigin.y + 12.0} text="g" size={4.8} />
+          <TextbookSvgText x={gOrigin.x + 7.5} y={gOrigin.y + 10.0} text="g" size={4.8} />
           <TextbookSvgText x={12.0} y={43.0} text="g cos α" size={4.2} />
           <TextbookSvgText x={normalAxisTip.x + 2.0} y={normalAxisTip.y - 2.0} text="normal" size={3.8} audit={false} />
           <TextbookSvgText x={63.0} y={8.5} text="normal motion" size={4.1} anchor="middle" audit={false} />
@@ -1900,7 +2192,7 @@ function InclineMotionResolutionTemplate({
           <TemplateArrow markerId={markerId} from={p} to={q} width={0.52} auditId="incline-resolution-s" />
           <TemplateArrow markerId={markerId} from={gOrigin} to={{ x: gOrigin.x, y: gOrigin.y + 23 }} width={0.58} auditId="incline-resolution-g" />
           <TemplateArrow markerId={markerId} from={gOrigin} to={gSinTip} width={0.46} auditId="incline-resolution-g-sin" />
-          <TextbookSvgText x={gOrigin.x + 4.0} y={gOrigin.y + 12.0} text="g" size={4.8} />
+          <TextbookSvgText x={gOrigin.x + 13.0} y={gOrigin.y + 4.0} text="g" size={4.8} />
           <TextbookSvgText x={gSinTip.x + 2.0} y={gSinTip.y + 4.0} text="g sin α" size={4.2} />
           <TextbookSvgText x={60.0} y={8.5} text="along-plane motion" size={3.9} anchor="middle" audit={false} />
           <TextbookSvgText x={63.0} y={15.5} text="s = 1/2 g sin α · t²" size={3.4} audit={false} />
