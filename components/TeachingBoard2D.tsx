@@ -1,6 +1,22 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
+import { contractForbids, contractForStep, contractLabelsForTarget, type BeatVisualSpec } from "@/types/visualContract";
+import {
+  boxesOverlap,
+  labelBox,
+  labelWidth,
+  normalize2,
+  overlapArea,
+  placeLabels,
+  pointBox,
+  segmentBox,
+  validBox,
+  type LabelAnchor,
+  type LabelBox,
+  type LabelCandidate,
+  type PlacedLabel,
+} from "@/utils/labelEngine";
 
 type Point2 = { x: number; y: number; label?: string; t?: number };
 
@@ -44,6 +60,11 @@ type SceneSpec2D = {
   }>;
   storyboard?: Array<{
     step_id: string;
+    beat_visual_spec?: BeatVisualSpec;
+    title?: string;
+    formula?: string;
+    equation?: string;
+    explanation?: string;
     visual_action?: string;
     visible_vectors?: string[];
     overlays?: string[];
@@ -72,33 +93,6 @@ type TeachingBoard2DProps = {
   mode: "concept" | "event";
   actorFilter?: string;
   answerText?: string | null;
-};
-
-type LabelAnchor = "start" | "middle" | "end";
-
-type LabelCandidate = {
-  key: string;
-  text: string;
-  x: number;
-  y: number;
-  size: number;
-  color?: string;
-  boxed?: boolean;
-  anchor?: LabelAnchor;
-  leaderFrom?: Point2;
-  priority?: number;
-};
-
-type PlacedLabel = LabelCandidate & {
-  box: LabelBox;
-  moved: boolean;
-};
-
-type LabelBox = {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
 };
 
 type ResolvedVector = {
@@ -149,8 +143,6 @@ const C = {
   text: "#17242b",
   muted: "#51636a",
 };
-
-const LABEL_CHAR_WIDTH = 0.68;
 
 export default function TeachingBoard2D({
   sceneSpec,
@@ -597,6 +589,10 @@ function TextbookProjectileTemplate({
   const heightText = height && Number.isFinite(height.value)
     ? `H = ${formatQuantityValue(height.value, unitForQuantity(height.unit))}${unitForQuantity(height.unit)}`
     : "H";
+  const launchHeight = sceneSpec.quantities?.launch_height ?? sceneSpec.quantities?.h ?? sceneSpec.quantities?.height ?? sceneSpec.quantities?.H;
+  const launchHeightText = launchHeight && Number.isFinite(launchHeight.value)
+    ? `h = ${formatQuantityValue(launchHeight.value, unitForQuantity(launchHeight.unit))}${unitForQuantity(launchHeight.unit)}`
+    : "h";
   const time = sceneSpec.quantities?.T ?? sceneSpec.quantities?.time ?? sceneSpec.quantities?.t ?? sceneSpec.quantities?.t_peak;
   const timeText = time && Number.isFinite(time.value)
     ? `T = ${formatQuantityValue(time.value, unitForQuantity(time.unit))}${unitForQuantity(time.unit)}`
@@ -645,13 +641,17 @@ function TextbookProjectileTemplate({
         {template === "peak-time-result" && <PeakTimeTemplate markerId={markerId} variant="result" timeText={peakTimeText} />}
         {template === "multi-result" && <MultiResultTemplate markerId={markerId} rangeText={rangeText} heightText={heightText} timeText={timeText} />}
         {template === "multi-equation-bridge" && <MultiEquationBridgeTemplate markerId={markerId} rangeText={rangeText} heightText={heightText} timeText={timeText} />}
-        {template === "height-launch-setup" && <HeightLaunchTemplate markerId={markerId} variant="setup" rangeText={rangeText} heightText={heightText} timeText={timeText} />}
-        {template === "height-launch-condition" && <HeightLaunchTemplate markerId={markerId} variant="condition" rangeText={rangeText} heightText={heightText} timeText={timeText} />}
-        {template === "height-launch-result" && <HeightLaunchTemplate markerId={markerId} variant="result" rangeText={rangeText} heightText={heightText} timeText={timeText} />}
-        {template === "height-launch-time-setup" && <HeightLaunchTemplate markerId={markerId} variant="time-setup" rangeText={rangeText} heightText={heightText} timeText={timeText} />}
-        {template === "height-launch-time-condition" && <HeightLaunchTemplate markerId={markerId} variant="time-condition" rangeText={rangeText} heightText={heightText} timeText={timeText} />}
-        {template === "height-launch-time-factor" && <HeightLaunchTemplate markerId={markerId} variant="time-factor" rangeText={rangeText} heightText={heightText} timeText={timeText} />}
-        {template === "height-launch-time-result" && <HeightLaunchTemplate markerId={markerId} variant="time-result" rangeText={rangeText} heightText={heightText} timeText={timeText} />}
+        {template === "height-launch-setup" && <HeightLaunchTemplate markerId={markerId} variant="setup" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} />}
+        {template === "height-launch-condition" && <HeightLaunchTemplate markerId={markerId} variant="condition" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} />}
+        {template === "height-launch-result" && <HeightLaunchTemplate markerId={markerId} variant="result" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} />}
+        {template === "height-launch-time-setup" && <HeightLaunchTemplate markerId={markerId} variant="time-setup" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} />}
+        {template === "height-launch-time-condition" && <HeightLaunchTemplate markerId={markerId} variant="time-condition" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} />}
+        {template === "height-launch-time-factor" && <HeightLaunchTemplate markerId={markerId} variant="time-factor" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} />}
+        {template === "height-launch-time-result" && <HeightLaunchTemplate markerId={markerId} variant="time-result" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} />}
+        {template === "horizontal-cliff-setup" && <HorizontalCliffTemplate markerId={markerId} variant="setup" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} answerText={finalAnswerText} />}
+        {template === "horizontal-cliff-fall-time" && <HorizontalCliffTemplate markerId={markerId} variant="fall-time" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} answerText={finalAnswerText} />}
+        {template === "horizontal-cliff-range" && <HorizontalCliffTemplate markerId={markerId} variant="range" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} answerText={finalAnswerText} />}
+        {template === "horizontal-cliff-impact" && <HorizontalCliffTemplate markerId={markerId} variant="impact" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} answerText={finalAnswerText} />}
         {template === "wall-clearance-setup" && <WallClearanceTemplate markerId={markerId} variant="setup" />}
         {template === "wall-clearance-relation" && <WallClearanceTemplate markerId={markerId} variant="relation" />}
         {template === "wall-clearance-result" && <WallClearanceTemplate markerId={markerId} variant="result" answerText={finalAnswerText} />}
@@ -746,6 +746,10 @@ type TextbookBeatTemplate =
   | "height-launch-time-condition"
   | "height-launch-time-factor"
   | "height-launch-time-result"
+  | "horizontal-cliff-setup"
+  | "horizontal-cliff-fall-time"
+  | "horizontal-cliff-range"
+  | "horizontal-cliff-impact"
   | "wall-clearance-setup"
   | "wall-clearance-relation"
   | "wall-clearance-result"
@@ -823,6 +827,8 @@ function textbookBeatTemplateKind(
   activeIds: string[],
   storyboardStep: NonNullable<SceneSpec2D["storyboard"]>[number] | undefined,
 ): TextbookBeatTemplate {
+  const contractTemplate = storyboardStep?.beat_visual_spec?.renderer_hints?.svg_template;
+  if (contractTemplate) return contractTemplate as TextbookBeatTemplate;
   const world = sceneSpec.problem.world.toLowerCase();
   const engineCase = sceneSpec.problem.engine_case.toLowerCase();
   const visualAction = String(storyboardStep?.visual_action ?? "").toLowerCase();
@@ -832,6 +838,10 @@ function textbookBeatTemplateKind(
     sceneSpec.problem.world,
     sceneSpec.problem.engine_case,
     sceneSpec.problem.unknown,
+    storyboardStep?.title,
+    storyboardStep?.formula,
+    storyboardStep?.equation,
+    storyboardStep?.explanation,
     ...(storyboardStep?.overlays ?? []),
     ...activeIds,
     ...vectors.map(vector => `${vector.id} ${vector.component} ${vector.anchor}`),
@@ -840,6 +850,24 @@ function textbookBeatTemplateKind(
     if (stepId.includes("solve_2") || tokens.includes("time to peak") || tokens.includes("t_peak")) return "peak-time-result";
     if (stepId.includes("solve_5")) return "multi-equation-bridge";
     if (tokens.includes("answer") || stepId.includes("solve_7")) return "multi-result";
+  }
+  if (engineCase === "height_launch_horizontal_scenario") {
+    if (stepId === "invariant" || stepId.includes("solve_1")) return "horizontal-cliff-setup";
+    if (tokens.includes("v_x = constant") || tokens.includes("vx = constant")) return "horizontal-cliff-setup";
+    if (tokens.includes("impact angle") || tokens.includes("impact speed") || tokens.includes("quantity:impact_angle") || tokens.includes("vector:vy") || visualAction === "show_impact_velocity_triangle") return "horizontal-cliff-impact";
+    if (tokens.includes("quantity:r") || tokens.includes("range") || tokens.includes("r =")) return "horizontal-cliff-range";
+    if (tokens.includes("quantity:t") || tokens.includes("launch_height") || tokens.includes("fall time") || stepId.includes("solve_2")) return "horizontal-cliff-fall-time";
+    return "horizontal-cliff-impact";
+  }
+  if (engineCase === "height_launch_multi_quantity") {
+    if (stepId === "invariant") return "height-launch-setup";
+    if (stepId.includes("solve_1") || tokens.includes("quantity:ux") || tokens.includes("quantity:uy")) return "launch-components";
+    if (tokens.includes("impact angle") || tokens.includes("impact speed") || tokens.includes("quantity:impact_angle") || visualAction === "show_impact_velocity_triangle") return "descent-components";
+    if (tokens.includes("positive") || tokens.includes("sqrt") || stepId.includes("solve_3")) return "height-launch-time-factor";
+    if (tokens.includes("quantity:r") || tokens.includes("range") || tokens.includes("r =")) return "height-launch-result";
+    if (tokens.includes("ground-impact") || tokens.includes("launch_height") || tokens.includes("event:impact") || stepId.includes("solve_2")) return "height-launch-condition";
+    if (tokens.includes("h_max") || tokens.includes("maximum height") || tokens.includes("event:apex")) return "apex";
+    return "height-launch-result";
   }
   if (engineCase === "height_launch_range") {
     if (stepId === "invariant") return "height-launch-setup";
@@ -1445,6 +1473,82 @@ function HeightLaunchTemplate({
         <>
           <TextbookSvgText x={44.0} y={9.5} text={timeText === "T" ? "flight time" : timeText} size={4.4} audit={false} />
           <TextbookSvgText x={47.5} y={16.5} text="vertical motion only" size={4.0} audit={false} />
+        </>
+      )}
+    </g>
+  );
+}
+
+type HorizontalCliffTemplateVariant = "setup" | "fall-time" | "range" | "impact";
+
+function HorizontalCliffTemplate({
+  markerId,
+  variant,
+  rangeText,
+  heightText,
+  timeText,
+}: {
+  markerId: string;
+  variant: HorizontalCliffTemplateVariant;
+  rangeText: string;
+  heightText: string;
+  timeText: string;
+  answerText?: string;
+}) {
+  const launch = { x: 27, y: 20 };
+  const groundY = 49;
+  const impact = { x: 82, y: groundY };
+  const showRange = variant === "range";
+  const showTrajectory = variant === "range" || variant === "impact";
+  const showImpact = variant === "impact";
+  return (
+    <g>
+      <line x1={9} y1={groundY} x2={93} y2={groundY} stroke={C.surface} strokeWidth={0.62} data-audit-template-line-id="horizontal-cliff-ground" />
+      <line x1={10} y1={20} x2={launch.x} y2={20} stroke={C.surface} strokeWidth={0.72} data-audit-template-line-id="horizontal-cliff-top" />
+      <line x1={10} y1={20} x2={10} y2={groundY} stroke={C.surface} strokeWidth={0.72} data-audit-template-line-id="horizontal-cliff-side" />
+      {showTrajectory && (
+        <path data-audit-template-line-id="horizontal-cliff-trajectory" d={`M ${launch.x} ${launch.y} C 47 20, 67 34, ${impact.x} ${impact.y}`} fill="none" stroke={C.surface} strokeWidth={0.64} />
+      )}
+      <TemplatePoint x={launch.x} y={launch.y} label="O" />
+      {showTrajectory && <TemplatePoint x={impact.x} y={impact.y} label={showRange ? undefined : "B"} />}
+      <TemplateArrow markerId={markerId} from={launch} to={{ x: launch.x + 22, y: launch.y }} auditId="horizontal-cliff-vx" />
+      <TemplateArrow markerId={markerId} from={{ x: 18, y: 23 }} to={{ x: 18, y: groundY - 4 }} width={0.46} auditId="horizontal-cliff-height" />
+      <TextbookSvgText x={21.5} y={35.5} text={heightText === "H" ? "h" : heightText.replace("H =", "h =")} size={4.2} />
+      <TextbookSvgText x={42.0} y={17.0} text="vₓ constant" size={3.75} audit={false} />
+      {variant === "setup" && (
+        <>
+          <TextbookSvgText x={43.0} y={9.0} text="horizontal launch" size={4.6} audit={false} />
+          <TextbookSvgText x={52.0} y={25.0} text="uᵧ = 0" size={4.0} audit={false} />
+        </>
+      )}
+      {variant === "fall-time" && (
+        <>
+          <TextbookSvgText x={39.0} y={9.0} text="fall time from height" size={4.25} audit={false} />
+          <TextbookSvgText x={42.0} y={15.8} text="h = 1/2 gT²" size={4.0} audit={false} />
+          <TextbookSvgText x={42.0} y={58.0} text={timeText === "T" ? "T from vertical fall" : timeText} size={3.8} anchor="middle" audit={false} />
+        </>
+      )}
+      {showRange && (
+        <>
+          <line x1={launch.x} y1={56.5} x2={impact.x} y2={56.5} stroke={C.surface} strokeWidth={0.46} data-audit-template-line-id="horizontal-cliff-range" />
+          <TextbookSvgText x={55.0} y={54.7} text={rangeText === "R" ? "R = vₓT" : rangeText} size={3.9} anchor="middle" audit={false} />
+        </>
+      )}
+      {variant === "range" && (
+        <>
+          <TextbookSvgText x={42.0} y={9.0} text="horizontal distance" size={4.35} audit={false} />
+          <TextbookSvgText x={43.0} y={15.8} text="R = vₓT" size={4.1} audit={false} />
+        </>
+      )}
+      {showImpact && (
+        <>
+          <TemplateArrow markerId={markerId} from={impact} to={{ x: impact.x + 13, y: impact.y }} width={0.46} auditId="horizontal-cliff-impact-vx" />
+          <TemplateArrow markerId={markerId} from={impact} to={{ x: impact.x, y: impact.y + 6.2 }} width={0.46} auditId="horizontal-cliff-impact-vy" />
+          <TemplateArrow markerId={markerId} from={impact} to={{ x: impact.x + 12, y: impact.y + 6.2 }} width={0.52} auditId="horizontal-cliff-impact-v" />
+          <TextbookSvgText x={78.0} y={40.5} text="impact velocity" size={3.85} anchor="middle" audit={false} />
+          <TextbookSvgText x={93.0} y={47.2} text="vₓ" size={3.4} audit={false} />
+          <TextbookSvgText x={78.2} y={57.8} text="vᵧ" size={3.4} audit={false} />
+          <TextbookSvgText x={60.0} y={9.0} text="|v| and φ from triangle" size={4.0} anchor="middle" audit={false} />
         </>
       )}
     </g>
@@ -2808,7 +2912,7 @@ function Text2D({
   boxed?: boolean;
   anchor?: "start" | "middle" | "end";
 }) {
-  const width = Math.max(size * 2.2, text.length * size * LABEL_CHAR_WIDTH);
+  const width = labelWidth(text, size);
   const boxX = anchor === "middle" ? -width / 2 : anchor === "end" ? -width : -size * 0.24;
   return (
     <g transform={`translate(${x} ${-y})`}>
@@ -2816,108 +2920,6 @@ function Text2D({
       <text fill={color} fontSize={size} fontWeight={520} fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" textAnchor={anchor}>{text}</text>
     </g>
   );
-}
-
-function placeLabels(candidates: LabelCandidate[], bounds: ReturnType<typeof sceneBounds>, ui: number, initialOccupied: LabelBox[] = []): PlacedLabel[] {
-  const occupied: LabelBox[] = [...initialOccupied];
-  return candidates
-    .map((candidate, index) => ({ ...candidate, priority: candidate.priority ?? 50, sourceIndex: index }))
-    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.sourceIndex - b.sourceIndex)
-    .map(candidate => {
-      const base: LabelCandidate = { ...candidate };
-      const placements = labelPlacementCandidates(base, bounds, ui);
-      const clean = placements.find(option => !occupied.some(box => boxesOverlap(option.box, box, 0.12 * ui)));
-      const placed = clean ?? leastBadPlacement(placements, occupied, bounds, ui);
-      occupied.push(placed.box);
-      return placed;
-    });
-}
-
-function labelPlacementCandidates(label: LabelCandidate, bounds: ReturnType<typeof sceneBounds>, ui: number): PlacedLabel[] {
-  const directions = [
-    { x: 0, y: 0 },
-    { x: 1, y: 0 },
-    { x: -1, y: 0 },
-    { x: 0, y: 1 },
-    { x: 0, y: -1 },
-    { x: 1, y: 1 },
-    { x: -1, y: 1 },
-    { x: 1, y: -1 },
-    { x: -1, y: -1 },
-  ];
-  const radii = [0, 1.35 * ui, 2.45 * ui, 3.7 * ui, 5.1 * ui, 6.8 * ui, 9.2 * ui];
-  const options: PlacedLabel[] = [];
-  for (const radius of radii) {
-    for (const direction of directions) {
-      if (radius === 0 && (direction.x !== 0 || direction.y !== 0)) continue;
-      const normalized = normalize2(direction);
-      const candidate = clampLabelToBounds({
-        ...label,
-        x: label.x + normalized.x * radius,
-        y: label.y + normalized.y * radius,
-      }, bounds, ui);
-      const box = labelBox(candidate);
-      options.push({
-        ...candidate,
-        box,
-        moved: Math.abs(candidate.x - label.x) > 0.01 * ui || Math.abs(candidate.y - label.y) > 0.01 * ui,
-      });
-    }
-  }
-  return options;
-}
-
-function leastBadPlacement(options: PlacedLabel[], occupied: LabelBox[], bounds: ReturnType<typeof sceneBounds>, ui: number) {
-  let best = options[0];
-  let bestScore = Number.POSITIVE_INFINITY;
-  for (const option of options) {
-    const score = occupied.reduce((sum, box) => sum + overlapArea(option.box, box, 0.12 * ui), 0);
-    if (score < bestScore) {
-      best = option;
-      bestScore = score;
-    }
-  }
-  let adjusted = best;
-  for (let attempt = 1; attempt <= 16 && occupied.some(box => boxesOverlap(adjusted.box, box, 0.12 * ui)); attempt += 1) {
-    const direction = attempt % 2 === 0 ? -1 : 1;
-    const next = clampLabelToBounds({
-      ...adjusted,
-      y: adjusted.y + direction * Math.ceil(attempt / 2) * 0.75 * ui,
-    }, bounds, ui);
-    const box = labelBox(next);
-    adjusted = { ...next, box, moved: true };
-  }
-  return adjusted;
-}
-
-function clampLabelToBounds(label: LabelCandidate, bounds: ReturnType<typeof sceneBounds>, ui: number): LabelCandidate {
-  const box = labelBox(label);
-  let dx = 0;
-  let dy = 0;
-  const inset = 0.65 * ui;
-  if (box.left < bounds.minX + inset) dx = bounds.minX + inset - box.left;
-  if (box.right > bounds.maxX - inset) dx = bounds.maxX - inset - box.right;
-  if (box.bottom < bounds.minY + inset) dy = bounds.minY + inset - box.bottom;
-  if (box.top > bounds.maxY - inset) dy = bounds.maxY - inset - box.top;
-  return { ...label, x: label.x + dx, y: label.y + dy };
-}
-
-function labelBox(label: LabelCandidate): LabelBox {
-  const width = labelWidth(label.text, label.size);
-  const height = label.size * 1.28;
-  const anchor = label.anchor ?? "start";
-  const left = anchor === "middle" ? label.x - width / 2 : anchor === "end" ? label.x - width : label.x - label.size * 0.24;
-  const right = left + width;
-  return {
-    left,
-    right,
-    top: label.y + height * 0.76,
-    bottom: label.y - height * 0.36,
-  };
-}
-
-function labelWidth(text: string, size: number) {
-  return Math.max(size * 2.2, text.length * size * LABEL_CHAR_WIDTH);
 }
 
 function sceneGeometryBoxes(
@@ -2947,43 +2949,6 @@ function sceneGeometryBoxes(
     }
   }
   return boxes.filter(validBox);
-}
-
-function pointBox(point: Point2, radius: number): LabelBox {
-  return {
-    left: point.x - radius,
-    right: point.x + radius,
-    top: point.y + radius,
-    bottom: point.y - radius,
-  };
-}
-
-function segmentBox(from: Point2, to: Point2, pad: number): LabelBox {
-  return {
-    left: Math.min(from.x, to.x) - pad,
-    right: Math.max(from.x, to.x) + pad,
-    top: Math.max(from.y, to.y) + pad,
-    bottom: Math.min(from.y, to.y) - pad,
-  };
-}
-
-function validBox(box: LabelBox) {
-  return [box.left, box.right, box.top, box.bottom].every(Number.isFinite) && box.right >= box.left && box.top >= box.bottom;
-}
-
-function boxesOverlap(a: LabelBox, b: LabelBox, gap: number) {
-  return !(a.right + gap < b.left || b.right + gap < a.left || a.top + gap < b.bottom || b.top + gap < a.bottom);
-}
-
-function overlapArea(a: LabelBox, b: LabelBox, gap: number) {
-  const x = Math.max(0, Math.min(a.right + gap, b.right + gap) - Math.max(a.left - gap, b.left - gap));
-  const y = Math.max(0, Math.min(a.top + gap, b.top + gap) - Math.max(a.bottom - gap, b.bottom - gap));
-  return x * y;
-}
-
-function normalize2(point: { x: number; y: number }) {
-  const magnitude = Math.hypot(point.x, point.y) || 1;
-  return { x: point.x / magnitude, y: point.y / magnitude };
 }
 
 function distance(a: Point2, b: Point2) {
@@ -3570,6 +3535,11 @@ function sceneIdToVectorPatterns(id: string) {
   const normalized = id.trim().toLowerCase();
   if (!normalized || normalized.startsWith("emphasis:")) return [];
   if (normalized.startsWith("*:")) return [normalized];
+  if (normalized === "velocity:x_component" || normalized === "velocity:horizontal_component") return ["*:vx"];
+  if (normalized === "velocity:y_component" || normalized === "velocity:vertical_component") return ["*:vy"];
+  if (normalized === "velocity:impact_x_component") return ["*:vx"];
+  if (normalized === "velocity:impact_y_component") return ["*:vy"];
+  if (normalized === "velocity:impact" || normalized === "velocity:resultant") return ["*:v"];
   if (normalized.includes(":gravity_")) return [id];
   if (normalized.startsWith("gravity:") || normalized.startsWith("velocity:")) return [id];
   if (normalized.includes("normal_axis")) return ["incline:normal_axis"];
@@ -3592,6 +3562,8 @@ function matchesSceneId(ids: string[], id: string) {
 }
 
 function labelOverride(storyboardStep: NonNullable<SceneSpec2D["storyboard"]>[number] | undefined, vectorId: string) {
+  const contractLabel = contractLabelsForTarget(contractForStep(storyboardStep), vectorId);
+  if (contractLabel) return contractLabel;
   return storyboardStep?.labels?.find(label => label.target_id === vectorId)?.text;
 }
 
@@ -3602,6 +3574,7 @@ function vectorLabel(
   activeHighlightIds: string[],
   revealIds: string[],
 ) {
+  const contract = contractForStep(storyboardStep);
   const explicit = labelOverride(storyboardStep, vector.id);
   const ids = [
     ...(visualState.visible_ids ?? []),
@@ -3610,6 +3583,8 @@ function vectorLabel(
     ...activeHighlightIds,
     ...revealIds,
   ].join(" ").toLowerCase();
+  if (contractForbids(contract, "u_cos_theta") && vector.component === "x_velocity") return explicit ?? vector.label;
+  if (contractForbids(contract, "u_sin_theta") && vector.component === "y_velocity") return explicit ?? vector.label;
   if (vector.component === "x_velocity" && /\b(quantity:ux|vector:ux|ux)\b/.test(ids)) return "u_x = u cos(theta)";
   if (vector.component === "y_velocity" && /\b(quantity:uy|vector:uy|uy)\b/.test(ids)) return "u_y = u sin(theta)";
   return explicit ?? vector.label;

@@ -8,6 +8,7 @@ import VideoController from "@/components/VideoController";
 import { PhysicsScene } from "@/components/SceneViewer";
 import { buildLessonScene, getFocusId } from "@/utils/lessonScript";
 import TeachingBoard2D from "@/components/TeachingBoard2D";
+import type { BeatVisualSpec } from "@/types/visualContract";
 
 const SceneViewer = dynamic(() => import("@/components/SceneViewer"), { ssr: false });
 const AnimationScene3D = dynamic(() => import("@/components/AnimationScene3D"), { ssr: false });
@@ -178,6 +179,7 @@ interface SolveResult {
     diagram_model?: DiagramModel;
     steps: Array<{
       id: string;
+      beat_visual_spec?: BeatVisualSpec;
       title: string;
       student_goal?: string;
       concept_used?: string;
@@ -245,6 +247,7 @@ interface AnimationSceneSpec {
   events: Array<{ id: string; time: number; point: string; label: string }>;
   steps: Array<{
     id: string;
+    beat_visual_spec?: BeatVisualSpec;
     title: string;
     equation_step_id: string;
     student_goal?: string;
@@ -264,6 +267,7 @@ interface AnimationSceneSpec {
 
 interface WalkthroughStepUi {
   id: string;
+  beat_visual_spec?: BeatVisualSpec;
   title: string;
   student_goal?: string;
   teaching_goal?: string;
@@ -289,6 +293,7 @@ interface WalkthroughStepUi {
 
 interface ExplainerSubRevealUi {
   id: string;
+  beat_visual_spec?: BeatVisualSpec;
   text?: string;
   visual_instruction?: string;
   formula_lines?: string[];
@@ -298,6 +303,7 @@ interface ExplainerSubRevealUi {
 
 interface ExplainerBeatUi {
   id: string;
+  beat_visual_spec?: BeatVisualSpec;
   step_id?: string;
   title?: string;
   learner_message?: string;
@@ -441,7 +447,17 @@ function toKatexExpression(value: string) {
 }
 
 function shouldUseKatex(expression: string) {
+  if (containsProseWordsForKatex(expression)) return false;
   return /[=+\-*/^_\\]|\\sqrt|\\sin|\\cos|\\tan|\\theta|\\alpha|\\beta|\\gamma|\d\s*\\,\\mathrm/.test(expression);
+}
+
+function containsProseWordsForKatex(expression: string) {
+  const cleaned = expression
+    .replace(/\\mathrm\{[^}]*\}/g, " ")
+    .replace(/\\(?:theta|alpha|beta|gamma|sin|cos|tan|sqrt|times|frac|pi|circ)\b/g, " ")
+    .replace(/[A-Za-z]_\{?[A-Za-z0-9]+\}?/g, " ")
+    .replace(/\b[uvrgthxyRHT]\b/g, " ");
+  return /[A-Za-z]{2,}/.test(cleaned);
 }
 
 function MathText({
@@ -505,6 +521,7 @@ function looksLikeEquationWithProse(value: string) {
   if (relation) {
     const lhs = relation[1].trim();
     const rhs = relation[2].trim();
+    if (/\b(has|launch|horizontal|vertical|angle|height|speed|time|range|component|velocity|distance)\b/i.test(lhs)) return true;
     if (/\s/.test(lhs) && !/[+\-*/^_()√\\]/.test(lhs)) return true;
     if (/\b(above|below|horizontal|vertical|impact|speed|angle|range|height|time)\b/i.test(rhs) && !/[+\-*/^_()√\\]/.test(rhs)) {
       return true;
@@ -991,15 +1008,12 @@ function ExtractionReviewScreen({
   onGenerate: (prompt: string) => void;
   onBack: () => void;
 }) {
-  const [displayPrompt, setDisplayPrompt] = useState(
-    extracted.question_text_display || extracted.question_text || extracted.cleaned_prompt
-  );
-  const [solverPrompt, setSolverPrompt] = useState(
-    extracted.question_text_solver || extracted.cleaned_prompt || extracted.question_text
+  const [reviewPrompt, setReviewPrompt] = useState<string>(
+    extracted.question_text_display || extracted.question_text || extracted.cleaned_prompt || extracted.question_text_solver || ""
   );
   const [hasPromptChangedAfterSolve, setHasPromptChangedAfterSolve] = useState(false);
   const confidencePct = Math.round((extracted.confidence || 0) * 100);
-  const canSolve = Boolean(solverPrompt.trim()) && !loading && !solving && (solveResult?.status !== "passed" || hasPromptChangedAfterSolve);
+  const canSolve = Boolean(reviewPrompt.trim()) && !loading && !solving && (solveResult?.status !== "passed" || hasPromptChangedAfterSolve);
   const hasImage = Boolean(imageUrl);
 
   return (
@@ -1073,10 +1087,9 @@ function ExtractionReviewScreen({
           </div>
         </div>
         <textarea
-          value={displayPrompt}
+          value={reviewPrompt}
           onChange={e => {
-            setDisplayPrompt(e.target.value);
-            setSolverPrompt(e.target.value);
+            setReviewPrompt(e.target.value);
             setHasPromptChangedAfterSolve(true);
           }}
           rows={7}
@@ -1090,28 +1103,37 @@ function ExtractionReviewScreen({
           }}
         />
 
-        <details style={{
-          background: R.surface2, border: `1px solid ${R.border}`,
-          borderRadius: 10, padding: 12, flexShrink: 0,
-        }}>
-          <summary style={{ cursor: "pointer", color: R.textMid, fontSize: 13, fontWeight: 750 }}>
-            Solver-normalized text
-          </summary>
-          <textarea
-            value={solverPrompt}
-            onChange={e => {
-              setSolverPrompt(e.target.value);
-              setHasPromptChangedAfterSolve(true);
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
+          <button
+            onClick={() => {
+              onSolve(reviewPrompt);
+              setHasPromptChangedAfterSolve(false);
             }}
-            rows={4}
+            disabled={!canSolve}
             style={{
-              width: "100%", marginTop: 10, padding: 12, background: R.surface,
-              border: `1px solid ${R.borderSub}`, borderRadius: 8,
-              color: R.textMid, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12.5,
-              lineHeight: 1.5, resize: "vertical", minHeight: 110,
+              background: canSolve ? R.accent : R.borderSub,
+              color: canSolve ? R.surface : R.textMuted,
+              border: "none", borderRadius: 10, padding: "10px 20px",
+              fontSize: 14, fontWeight: 700, cursor: canSolve ? "pointer" : "default",
             }}
-          />
-        </details>
+          >
+            {solving ? "Solving…" : solveResult?.status === "passed" && !hasPromptChangedAfterSolve ? "Solved" : "Solve"}
+          </button>
+
+          <button
+            onClick={() => onGenerate(reviewPrompt)}
+            disabled={solveResult?.status !== "passed" || loading || solving}
+            style={{
+              background: solveResult?.status === "passed" && !loading && !solving ? R.good : R.borderSub,
+              color: solveResult?.status === "passed" && !loading && !solving ? R.surface : R.textMuted,
+              border: "none", borderRadius: 10, padding: "10px 20px",
+              fontSize: 14, fontWeight: 700,
+              cursor: solveResult?.status === "passed" && !loading && !solving ? "pointer" : "default",
+            }}
+          >
+            {loading ? "Building…" : "Generate walkthrough"}
+          </button>
+        </div>
 
         {solveResult?.status === "passed" && hasPromptChangedAfterSolve && (
           <div style={{
@@ -1124,7 +1146,7 @@ function ExtractionReviewScreen({
             lineHeight: 1.45,
             flexShrink: 0,
           }}>
-            The question was edited after solving. Click Solve again to update the answer and structured solution.
+            The question was edited after solving. Click Solve again to update validation and walkthrough data.
           </div>
         )}
 
@@ -1178,13 +1200,12 @@ function ExtractionReviewScreen({
                 {solveResult.diagram_warnings.join(" · ")}
               </div>
             )}
-            {solveResult.answer && (
-              <div style={{ fontSize: 15, color: R.text, marginBottom: 6, fontWeight: 650 }}>
-                Answer: <AnswerMathText value={solveResult.answer} />
-                <MatchedOptionText matchedOption={solveResult.matched_option} options={extracted.options} />
+            {solveResult.status === "passed" && (
+              <div style={{ fontSize: 13.5, color: R.textMid, lineHeight: 1.5 }}>
+                Validated. Generate the walkthrough to view the worked solution.
               </div>
             )}
-            {solveResult.reason && (
+            {solveResult.status !== "passed" && solveResult.reason && (
               <div style={{ fontSize: 13.5, color: R.textMid, lineHeight: 1.5 }}>
                 {solveResult.reason}
               </div>
@@ -1220,28 +1241,6 @@ function ExtractionReviewScreen({
                 Debug report: {solveResult.debug_report_path}
               </div>
             )}
-            {solveResult.trace.length > 0 && (
-              <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-                {solveResult.trace.slice(0, 4).map((step, index) => (
-                  <div key={`${index}-${step}`} style={{ fontSize: 13, color: R.textMid, lineHeight: 1.45 }}>
-                    {index + 1}. {formatMathDisplay(step)}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {solveResult?.walkthrough && solveResult.walkthrough.steps.length > 0 && (
-          <div style={{
-            background: R.surface,
-            border: `1px solid ${R.border}`,
-            borderRadius: 12,
-            padding: 16,
-            flexShrink: 0,
-            boxShadow: "0 14px 42px rgba(23,36,43,0.08)",
-          }}>
-            <TextbookSolution solveResult={solveResult} options={extracted.options} compact />
           </div>
         )}
 
@@ -1272,38 +1271,6 @@ function ExtractionReviewScreen({
               {entity.description ? ` · ${entity.description}` : ""}
             </div>
           ))}
-        </div>
-
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-          <button
-            onClick={() => {
-              onSolve(solverPrompt);
-              setHasPromptChangedAfterSolve(false);
-            }}
-            disabled={!canSolve}
-            style={{
-              background: canSolve ? R.accent : R.borderSub,
-              color: canSolve ? R.surface : R.textMuted,
-              border: "none", borderRadius: 10, padding: "10px 20px",
-              fontSize: 14, fontWeight: 700, cursor: canSolve ? "pointer" : "default",
-            }}
-          >
-            {solving ? "Solving…" : solveResult?.status === "passed" && !hasPromptChangedAfterSolve ? "Solved" : "Solve"}
-          </button>
-
-          <button
-            onClick={() => onGenerate(solverPrompt)}
-            disabled={solveResult?.status !== "passed" || loading || solving}
-            style={{
-              background: solveResult?.status === "passed" && !loading && !solving ? R.good : R.borderSub,
-              color: solveResult?.status === "passed" && !loading && !solving ? R.surface : R.textMuted,
-              border: "none", borderRadius: 10, padding: "10px 20px",
-              fontSize: 14, fontWeight: 700,
-              cursor: solveResult?.status === "passed" && !loading && !solving ? "pointer" : "default",
-            }}
-          >
-            {loading ? "Building…" : "Generate walkthrough"}
-          </button>
         </div>
       </div>
     </div>
@@ -1363,7 +1330,7 @@ function SolutionPlayer({
   const mainGridRows = compactLayout && !isAnimationExpanded
     ? [
       showQuestionPanel ? "minmax(150px, 24vh)" : "",
-      "minmax(420px, 64vh)",
+      "minmax(680px, 78vh)",
       showStepsPanel ? "minmax(260px, auto)" : "",
     ].filter(Boolean).join(" ")
     : undefined;
@@ -1378,6 +1345,11 @@ function SolutionPlayer({
     : effectiveSolutionMode === "explainer"
       ? `Explainer beat ${displayStepIndex + 1}/${stepCount}`
       : `Step ${displayStepIndex + 1}/${stepCount}`;
+  const visualStudentText = activeBeat?.beat_visual_spec?.student_text
+    || step?.beat_visual_spec?.student_text
+    || activeBeat?.learner_message
+    || step?.explanation
+    || "";
 
   const goToStep = (index: number) => {
     setPlaybackMode("step");
@@ -1463,16 +1435,6 @@ function SolutionPlayer({
       window.removeEventListener("mouseup", onMouseUp);
     };
   }, [questionPanelWidth, resizingPanel, showQuestionPanel, showStepsPanel, solutionPanelWidth]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.localStorage.getItem("physica.simulationPanelGuide.v1") === "done") return;
-    const timer = window.setTimeout(() => {
-      setPanelGuideStep(0);
-      setShowPanelGuide(true);
-    }, 650);
-    return () => window.clearTimeout(timer);
-  }, []);
 
   const closePanelGuide = (markSeen = true) => {
     setShowPanelGuide(false);
@@ -1565,7 +1527,7 @@ function SolutionPlayer({
             flexDirection: "column",
           }}>
             <div style={{ padding: "10px 12px", borderBottom: `1px solid ${T.borderSub}`, fontSize: 12, color: T.textMid }}>
-              {playback.imageName}
+              {playback.imageUrl ? playback.imageName || "Uploaded image" : "Question"}
             </div>
             <div style={{ padding: 12, minHeight: 0, overflow: "auto" }}>
               {playback.imageUrl ? (
@@ -1621,17 +1583,11 @@ function SolutionPlayer({
             flexWrap: compactLayout ? "wrap" : "nowrap",
           }}>
             <div style={{ minWidth: 0 }}>
-              <div style={{ color: T.text, fontWeight: 700, fontSize: 14 }}>
+              <div style={{ color: T.textOnDark, fontWeight: 800, fontSize: 14 }}>
                 {step?.title ?? "Animation"}
               </div>
-              <div style={{ color: T.textMuted, fontSize: 11, marginTop: 3, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: compactLayout || isAnimationExpanded ? "70vw" : "42vw" }}>
-                {step?.animation_focus
-                  ? formatMathDisplay(step.animation_focus)
-                  : step?.formula
-                    ? <MathText value={step.formula} />
-                    : step?.explanation
-                      ? formatMathDisplay(step.explanation)
-                      : ""}
+              <div style={{ color: "rgba(251,252,250,0.76)", fontSize: 11, marginTop: 3, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: compactLayout || isAnimationExpanded ? "70vw" : "42vw" }}>
+                {visualStudentText ? formatMathDisplay(visualStudentText) : ""}
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -1674,7 +1630,7 @@ function SolutionPlayer({
               >
                 Panel guide
               </button>
-              <div style={{ color: T.textMuted, fontSize: 12, whiteSpace: "nowrap" }}>
+              <div style={{ color: "rgba(251,252,250,0.70)", fontSize: 12, whiteSpace: "nowrap" }}>
                 {playbackStatusLabel}
               </div>
             </div>
@@ -1689,17 +1645,7 @@ function SolutionPlayer({
             fullAnimationActive={fullAnimationActive}
             activeReveal={activeReveal}
             intent={step?.animation_intent ?? ""}
-            isPlaying={isPlaying}
-            playbackLabel={playbackStatusLabel}
             answerText={playback.solveResult.answer ?? playback.solveResult.equation_plan?.final_answer ?? ""}
-            onTogglePlay={() => {
-              if (stepProgress >= 1) {
-                setStepProgress(0);
-                setIsPlaying(true);
-                return;
-              }
-              setIsPlaying(value => !value);
-            }}
           />
           {showPanelGuide && (
             <SimulationPanelGuide
@@ -1755,18 +1701,21 @@ function SolutionPlayer({
             >
               Full animation
             </button>
-            <label data-guide-id="speed-control" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: T.textMuted, fontSize: 12 }}>
+            <label data-guide-id="speed-control" style={{ display: "inline-flex", alignItems: "center", gap: 7, color: "rgba(251,252,250,0.82)", fontSize: 12, fontWeight: 750 }}>
               Speed
               <select
                 value={speed}
                 onChange={event => setSpeed(Number(event.target.value))}
                 style={{
-                  background: T.borderSub,
+                  background: T.textOnDark,
                   color: T.text,
-                  border: `1px solid ${T.border}`,
+                  border: "1px solid rgba(251,252,250,0.55)",
                   borderRadius: 8,
-                  padding: "7px 8px",
+                  padding: "7px 28px 7px 10px",
                   fontFamily: "inherit",
+                  fontWeight: 800,
+                  minWidth: 78,
+                  colorScheme: "light",
                 }}
               >
                 <option value={0.5}>0.5x</option>
@@ -2728,10 +2677,7 @@ function WalkthroughVisual({
   fullAnimationActive,
   activeReveal,
   intent,
-  isPlaying,
-  playbackLabel,
   answerText,
-  onTogglePlay,
 }: {
   engineCase: string;
   diagramModel?: DiagramModel;
@@ -2741,10 +2687,7 @@ function WalkthroughVisual({
   fullAnimationActive: boolean;
   activeReveal?: ActiveRevealState;
   intent: string;
-  isPlaying: boolean;
-  playbackLabel: string;
   answerText: string;
-  onTogglePlay: () => void;
 }) {
   const [collapsedViews, setCollapsedViews] = useState<Record<string, boolean>>({});
   const toggleView = (id: string) => {
@@ -2756,8 +2699,9 @@ function WalkthroughVisual({
   const isFullCollapsed = Boolean(collapsedViews.full);
   const collapsedPanels = [
     isBoardCollapsed ? { id: "board", title: hasMultipleActors ? "Object boards" : "Teaching board" } : null,
-    isFullCollapsed ? { id: "full", title: "Overall animation" } : null,
+    isFullCollapsed ? { id: "full", title: "3D animation" } : null,
   ].filter(Boolean) as Array<{ id: string; title: string }>;
+  const animationStepId = fullAnimationActive ? "__full_lifecycle" : stepId;
 
   return (
     <div style={{
@@ -2825,20 +2769,20 @@ function WalkthroughVisual({
           {!isFullCollapsed && (
             <TeachingScenePanel
               id="full"
-              title="Overall animation"
-              subtitle={fullAnimationActive ? "Playing complete lifecycle" : "Frozen until full mode or final beat"}
+              title="3D animation"
+              subtitle={fullAnimationActive ? "Complete lifecycle" : "Step-local motion for this beat"}
               onToggle={() => toggleView("full")}
               grow
             >
               <AnimationScene3D
                 sceneSpec={sceneSpec}
-                stepId="__full_lifecycle"
+                stepId={animationStepId}
                 teachingStepId={stepId}
-                animationProgress={fullAnimationActive ? animationProgress : 0}
+                animationProgress={animationProgress}
                 revealIds={activeReveal?.revealIds ?? []}
                 highlightIds={activeReveal?.highlightIds ?? []}
                 accumulateTeachingVectors={false}
-                vectorMode="none"
+                vectorMode={fullAnimationActive ? "none" : "beat"}
               />
             </TeachingScenePanel>
           )}
@@ -2861,38 +2805,6 @@ function WalkthroughVisual({
           </div>
         </div>
       )}
-      <div style={{
-        position: "absolute",
-        left: "50%",
-        top: 12,
-        transform: "translateX(-50%)",
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        zIndex: 3,
-      }}>
-        <div style={{
-          color: T.textMid,
-          background: "rgba(17,17,28,0.72)",
-          border: `1px solid ${T.borderSub}`,
-          borderRadius: 8,
-          padding: "7px 9px",
-          fontSize: 11,
-          fontWeight: 800,
-          pointerEvents: "none",
-          whiteSpace: "nowrap",
-        }}>
-          {playbackLabel}
-        </div>
-        <button
-          type="button"
-          onClick={onTogglePlay}
-          style={visualPauseButtonStyle}
-          title={isPlaying ? "Pause animation" : "Play animation"}
-        >
-          {isPlaying ? "Pause" : "Play"}
-        </button>
-      </div>
       <style>{`
         @keyframes walk-dot { from { offset-distance: 0%; } to { offset-distance: 100%; } }
         @keyframes pulse-focus { 0%,100% { transform: scale(1); opacity: 0.7; } 50% { transform: scale(1.08); opacity: 1; } }
@@ -2922,7 +2834,7 @@ function TeachingScenePanel({
     <section style={{
       ...teachingScenePanelStyle,
       flex: grow ? "1 1 0" : "1 1 0",
-      minHeight: collapsed ? 44 : grow ? 220 : 170,
+      minHeight: collapsed ? 44 : grow ? 320 : 230,
     }}>
       <div style={teachingScenePanelHeaderStyle}>
         <div style={{ minWidth: 0 }}>
@@ -3008,7 +2920,6 @@ const multiViewShellStyle: CSSProperties = {
   flexDirection: "column",
   gap: 8,
   padding: 8,
-  paddingTop: 52,
 };
 
 const actorBoardGridStyle: CSSProperties = {
@@ -3104,14 +3015,14 @@ const teachingScenePanelHeaderStyle: CSSProperties = {
 };
 
 const teachingScenePanelTitleStyle: CSSProperties = {
-  color: T.text,
+  color: T.textOnDark,
   fontSize: 12,
   fontWeight: 900,
   lineHeight: 1.2,
 };
 
 const teachingScenePanelSubtitleStyle: CSSProperties = {
-  color: T.textMuted,
+  color: "rgba(251,252,250,0.68)",
   fontSize: 10.5,
   fontWeight: 700,
   whiteSpace: "nowrap",
@@ -3122,7 +3033,7 @@ const teachingScenePanelSubtitleStyle: CSSProperties = {
 const teachingSceneCollapseButtonStyle: CSSProperties = {
   border: "1px solid rgba(255,255,255,0.14)",
   background: "rgba(255,255,255,0.08)",
-  color: T.textMid,
+  color: "rgba(251,252,250,0.74)",
   borderRadius: 8,
   padding: "5px 8px",
   fontSize: 11,
@@ -3381,19 +3292,6 @@ function playerButtonStyle(active: boolean): CSSProperties {
     fontFamily: "inherit",
   };
 }
-
-const visualPauseButtonStyle: CSSProperties = {
-  background: "rgba(88,196,221,0.16)",
-  color: T.accent,
-  border: "1px solid rgba(88,196,221,0.42)",
-  borderRadius: 8,
-  padding: "7px 11px",
-  fontSize: 12,
-  fontWeight: 850,
-  cursor: "pointer",
-  fontFamily: "inherit",
-  boxShadow: "0 0 18px rgba(88,196,221,0.16)",
-};
 
 function resizeHandleStyle(active: boolean): CSSProperties {
   return {

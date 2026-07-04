@@ -4,6 +4,8 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Line, OrbitControls } from "@react-three/drei";
 import { MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { contractForbids, contractForStep, contractLabelsForTarget, type BeatVisualSpec } from "@/types/visualContract";
+import { vectorLabelOffset2D } from "@/utils/labelEngine";
 
 interface AnimationSceneSpec {
   problem: {
@@ -62,6 +64,7 @@ interface AnimationSceneSpec {
   }>;
   storyboard?: Array<{
     step_id: string;
+    beat_visual_spec?: BeatVisualSpec;
     visual_action?: string;
     camera: string;
     visible_vectors: string[];
@@ -155,18 +158,21 @@ export default function AnimationScene3D({
   const visualAction = storyboardStep?.visual_action ?? "";
   const motionMode = String(storyboardStep?.motion?.mode ?? "");
   const requested = requestedVisualQuantities(sceneSpec.problem.unknown, sceneSpec.problem.engine_case);
+  const showImpactVelocityState = visualAction === "show_impact_velocity_triangle";
   const shouldAnimateMotion = isFullLifecycle
-    || storyboardOverlays.includes("show_motion_progress")
-    || motionMode === "partial"
-    || motionMode === "lifecycle";
+    || (!showImpactVelocityState && (
+      storyboardOverlays.includes("show_motion_progress")
+      || motionMode === "partial"
+      || motionMode === "lifecycle"
+    ));
   const showStaticComponents = storyboardOverlays.includes("show_velocity_components");
   const showTrajectoryLines = isFullLifecycle || shouldAnimateMotion || (
     storyboardOverlays.includes("show_trajectory")
-    && !["show_full_scene", "show_incline_axes", "compare_incline_motion", "zoom_launch_vector"].includes(visualAction)
+    && !["show_full_scene", "show_launch_setup", "show_incline_axes", "compare_incline_motion", "zoom_launch_vector"].includes(visualAction)
   );
   const staticProgress = motionMode === "freeze"
     ? 1
-    : (showStaticComponents || ["show_full_scene", "show_incline_axes", "compare_incline_motion", "zoom_launch_vector"].includes(visualAction) ? 0 : 1);
+    : ((showStaticComponents && !showImpactVelocityState) || ["show_full_scene", "show_launch_setup", "show_incline_axes", "compare_incline_motion", "zoom_launch_vector"].includes(visualAction) ? 0 : 1);
   const sceneProgress = shouldAnimateMotion ? progress : staticProgress;
   const globalTime = sceneProgress * model.totalDuration;
   const fullSceneCamera = activeCameraBookmark(model, "full_scene");
@@ -175,33 +181,41 @@ export default function AnimationScene3D({
     : fullSceneCamera;
   const liveMotion = liveMotionAt(model, sceneProgress);
   const liveValues = liveVariableRows(model, sceneProgress);
+  const isAnswerStep = stepId.includes("answer")
+    || stepId.includes("takeaway")
+    || visualAction === "highlight_final_answer";
+  const asksThisBeatForRange = storyboardOverlays.includes("show_range_marker")
+    || visualAction === "highlight_range"
+    || stepId.includes("range")
+    || stepId.includes("distance")
+    || (isAnswerStep && requested.range);
+  const asksThisBeatForHeight = storyboardOverlays.includes("show_height_marker")
+    || visualAction === "highlight_apex"
+    || stepId.includes("height")
+    || stepId.includes("peak")
+    || stepId.includes("apex")
+    || (isAnswerStep && requested.height);
+  const asksThisBeatForTime = storyboardOverlays.includes("show_timer")
+    || stepId.includes("time")
+    || stepId.includes("flight")
+    || (isAnswerStep && requested.time);
   const showInclineRange = Boolean(model.impact) && hasFiniteQuantity(model, "R") && model.world === "incline" && (
-    requested.range || sceneSpec.problem.unknown.includes("distance")
+    isFullLifecycle && requested.range || asksThisBeatForRange || sceneSpec.problem.unknown.includes("distance") && isAnswerStep
   );
   const showRange = !showInclineRange && hasFiniteQuantity(model, "R") && (
     (isFullLifecycle && requested.range)
-    || storyboardOverlays.includes("show_range_marker")
-    || requested.range
-    || stepId.includes("range")
-    || stepId.includes("answer")
-    || (sceneSpec.problem.world === "height_launch" && requested.range)
+    || asksThisBeatForRange
   );
   const showSameHeight = storyboardOverlays.includes("show_same_height");
   const showHeight = hasFiniteQuantity(model, "H") && (
     (isFullLifecycle && requested.height)
-    || storyboardOverlays.includes("show_height_marker")
-    || requested.height
-    || (sceneSpec.problem.world === "height_launch" && requested.height)
-    || stepId.includes("height")
-    || stepId.includes("peak")
-    || (stepId.includes("answer") && requested.height)
+    || asksThisBeatForHeight
   );
+  const hasLaunchHeightQuantity = hasFiniteQuantity(model, "launch_height") || hasFiniteQuantity(model, "h");
+  const showGenericHeightMarker = showHeight && !(sceneSpec.problem.world === "height_launch" && hasLaunchHeightQuantity);
   const showTimer = hasFiniteQuantity(model, "T") && (
     (isFullLifecycle && requested.time)
-    || storyboardOverlays.includes("show_timer")
-    || requested.time
-    || stepId.includes("time")
-    || (sceneSpec.problem.world === "height_launch" && requested.time)
+    || asksThisBeatForTime
   );
   const activeTarget = Boolean(model.target);
   const activeWall = Boolean(model.wall);
@@ -211,7 +225,13 @@ export default function AnimationScene3D({
     || highlightIds.some(id => id.toLowerCase().includes("normal_axis") || id.toLowerCase().includes("perpendicular"));
   const isComponentStep = storyboardOverlays.includes("show_velocity_components");
   const showLivePanel = isFullLifecycle || isComponentStep || (!isFullLifecycle && (shouldAnimateMotion || stepId.toLowerCase().includes("velocity"))) || requested.velocity;
-  const unknownLabel = readableUnknown(sceneSpec.problem.unknown);
+  const showAxisLabels = isFullLifecycle || visualAction === "show_incline_axes" || storyboardOverlays.includes("show_axes");
+  const showLandingPointMarker = model.showLandingMarker && (
+    isFullLifecycle
+    || showRange
+    || shouldAnimateMotion
+    || visualAction === "show_impact_velocity_triangle"
+  );
 
   useEffect(() => {
     setManualFocus(null);
@@ -263,11 +283,12 @@ export default function AnimationScene3D({
         />
 
         <Ground width={model.groundWidth} depth={model.groundDepth} />
-        <Axes length={model.axisLength} />
+        <Axes length={model.axisLength} showLabels={showAxisLabels} />
         {model.surfaces.map(surface => (
           <SurfaceLine
             key={surface.id}
             surface={surface}
+            showLabel={surface.type === "inclined_plane" || Boolean(surfaceHighlightColor(surface, highlightIds, activeEmphasisColor))}
             highlightColor={surfaceHighlightColor(surface, highlightIds, activeEmphasisColor)}
             onFocus={() => setManualFocus({
               target: [
@@ -335,6 +356,7 @@ export default function AnimationScene3D({
               color={pointHighlightColor([`actor:${trajectoryModel.actor}`, trajectoryModel.id], highlightIds, color, activeEmphasisColor)}
               labelLift={model.labelLift}
               emphasized={highlightIds.includes(`actor:${trajectoryModel.actor}`)}
+              showLabel={model.trajectories.length > 1}
             />
           );
         })}
@@ -370,7 +392,7 @@ export default function AnimationScene3D({
         {shouldShowMarker(model, "apex", storyboardStep, isFullLifecycle && requested.height) && (
           <Marker position={model.apex} label="A" color={pointHighlightColor(["event:apex", "quantity:H"], highlightIds, COLORS.height, activeEmphasisColor)} onFocus={() => setManualFocus({ target: model.apex, label: "apex" })} />
         )}
-        {model.showLandingMarker && (
+        {showLandingPointMarker && (
           <Marker position={model.landing} label="L" color={pointHighlightColor(["point:landing", "event:landing", "quantity:R", "quantity:T"], highlightIds, COLORS.range, activeEmphasisColor)} onFocus={() => setManualFocus({ target: model.landing, label: "landing" })} />
         )}
 
@@ -388,7 +410,7 @@ export default function AnimationScene3D({
           <SegmentMeasure from={model.launch} to={model.impact} label={`R = ${formatNumber(model.quantities.R)} m`} color={COLORS.range} />
         )}
         {showSameHeight && <SameHeightMarker from={model.launch} to={model.landing} />}
-        {showHeight && <HeightMarker apex={model.apex} label={`H = ${formatNumber(model.quantities.H)} m`} />}
+        {showGenericHeightMarker && <HeightMarker apex={model.apex} label={`H = ${formatNumber(model.quantities.H)} m`} />}
         {showTimer && <SceneLabel position={[model.center.x, model.maxY + model.labelLift, 0]} text={`T = ${formatNumber(model.quantities.T)} s`} color="#d7f7ff" />}
         {activeWall && <SceneLabel position={[model.wall!.x, model.wall!.height + model.labelLift * 0.42, 0]} text={`wall ${formatNumber(model.wall!.height)} m`} color="#d7f7ff" />}
         {showLaunchAngle && (
@@ -425,42 +447,6 @@ export default function AnimationScene3D({
         >
           <HandIcon />
         </button>
-      </div>
-      {storyboardStep?.why && (
-        <div style={{
-          position: "absolute",
-          left: 12,
-          top: 12,
-          maxWidth: "36%",
-          background: "rgba(17,17,28,0.72)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: 8,
-          padding: "8px 10px",
-          color: COLORS.text,
-          fontSize: 11,
-          lineHeight: 1.45,
-          pointerEvents: "none",
-        }}>
-          {storyboardStep.why}
-        </div>
-      )}
-      <div style={{
-        position: "absolute",
-        right: 12,
-        bottom: 12,
-        maxWidth: "34%",
-        background: "rgba(74,222,128,0.12)",
-        border: "1px solid rgba(74,222,128,0.34)",
-        borderRadius: 8,
-        padding: "7px 9px",
-        color: "#bbf7d0",
-        fontSize: 11,
-        fontWeight: 800,
-        lineHeight: 1.35,
-        pointerEvents: "none",
-        boxShadow: "0 0 18px rgba(74,222,128,0.12)",
-      }}>
-        To find: {unknownLabel}
       </div>
       {showLivePanel && (
         <div style={{
@@ -554,13 +540,17 @@ function cameraToolButtonStyle(active: boolean): React.CSSProperties {
   };
 }
 
-function Axes({ length }: { length: number }) {
+function Axes({ length, showLabels = true }: { length: number; showLabels?: boolean }) {
   return (
     <group>
       <Line points={[[0, 0.02, 0], [length, 0.02, 0]]} color="#3a3a55" lineWidth={2} />
       <Line points={[[0, 0, 0], [0, length * 0.42, 0]]} color="#3a3a55" lineWidth={2} />
-      <SceneLabel position={[length, 0.22, 0]} text="x" color={COLORS.muted} />
-      <SceneLabel position={[0.24, length * 0.42, 0]} text="y" color={COLORS.muted} />
+      {showLabels && (
+        <>
+          <SceneLabel position={[length, 0.22, 0]} text="x" color={COLORS.muted} />
+          <SceneLabel position={[0.24, length * 0.42, 0]} text="y" color={COLORS.muted} />
+        </>
+      )}
     </group>
   );
 }
@@ -702,7 +692,21 @@ function Marker({ position, label, color, onFocus }: { position: V3; label: stri
   );
 }
 
-function ActorDot({ position, label, color, labelLift, emphasized = false }: { position: V3; label: string; color: string; labelLift: number; emphasized?: boolean }) {
+function ActorDot({
+  position,
+  label,
+  color,
+  labelLift,
+  emphasized = false,
+  showLabel = true,
+}: {
+  position: V3;
+  label: string;
+  color: string;
+  labelLift: number;
+  emphasized?: boolean;
+  showLabel?: boolean;
+}) {
   const [pulse, setPulse] = useState(1);
   useFrame(({ clock }) => {
     if (!emphasized) return;
@@ -720,7 +724,9 @@ function ActorDot({ position, label, color, labelLift, emphasized = false }: { p
         <sphereGeometry args={[0.13, 24, 24]} />
         <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.18} roughness={0.38} />
       </mesh>
-      <SceneLabel position={[position[0] + 0.18, position[1] + labelLift * 0.36, position[2] + 0.03]} text={label} color={color} compact />
+      {showLabel && label && (
+        <SceneLabel position={[position[0] + 0.18, position[1] + labelLift * 0.36, position[2] + 0.03]} text={label} color={color} compact />
+      )}
     </group>
   );
 }
@@ -764,7 +770,7 @@ function Wall({ obstacle, onFocus }: { obstacle: { x: number; height: number }; 
 
 type SceneSurface = { id: string; type: string; from: V3; to: V3; label: string; angleDeg?: number };
 
-function SurfaceLine({ surface, highlightColor, onFocus }: { surface: SceneSurface; highlightColor?: string; onFocus?: () => void }) {
+function SurfaceLine({ surface, highlightColor, showLabel = true, onFocus }: { surface: SceneSurface; highlightColor?: string; showLabel?: boolean; onFocus?: () => void }) {
   const anchor: V3 = surface.to[1] <= surface.from[1] ? surface.to : surface.from;
   const other: V3 = anchor === surface.to ? surface.from : surface.to;
   const dx = other[0] - anchor[0];
@@ -790,11 +796,13 @@ function SurfaceLine({ surface, highlightColor, onFocus }: { surface: SceneSurfa
           onFocus?.();
         }}
       />
-      <SceneLabel
-        position={[(surface.from[0] + surface.to[0]) / 2, (surface.from[1] + surface.to[1]) / 2 + 0.25, 0]}
-        text={surface.label}
-        color="#d7f7ff"
-      />
+      {showLabel && (
+        <SceneLabel
+          position={[(surface.from[0] + surface.to[0]) / 2, (surface.from[1] + surface.to[1]) / 2 + 0.25, 0]}
+          text={surface.label}
+          color="#d7f7ff"
+        />
+      )}
       {showAngle && (
         <AngleArc
           origin={anchor}
@@ -969,6 +977,7 @@ type SceneLiveVector = {
 
 type StoryboardStep = {
   step_id: string;
+  beat_visual_spec?: BeatVisualSpec;
   visual_action?: string;
   camera: string;
   visible_vectors: string[];
@@ -1267,6 +1276,7 @@ function shouldShowMarker(
   const focus = new Set(storyboardStep?.visual_focus ?? []);
   const overlays = new Set(storyboardStep?.overlays ?? []);
   if (marker === "apex") {
+    if (pointsNearlyCoincident(model.apex, model.launch, model.ballRadius * 1.8)) return false;
     return focus.has("event:apex") || focus.has("quantity:H") || overlays.has("show_height_marker") || model.world === "split_at_apex";
   }
   return false;
@@ -1318,6 +1328,9 @@ function visibleLiveVectors(
 }
 
 function labelOverrideForVector(storyboardStep: StoryboardStep | null, vectorId: string) {
+  const contract = contractForStep(storyboardStep);
+  const contractLabel = contractLabelsForTarget(contract, vectorId);
+  if (contractLabel) return contractLabel;
   const labels = storyboardStep?.labels ?? [];
   const match = labels.find(label => label.target_id === vectorId);
   if (match?.text) return match.text;
@@ -1329,6 +1342,8 @@ function labelOverrideForVector(storyboardStep: StoryboardStep | null, vectorId:
     ...(storyboardStep?.visual_state?.label_ids ?? []),
     ...(storyboardStep?.highlight_ids ?? []),
   ].join(" ").toLowerCase();
+  if (contractForbids(contract, "u_cos_theta") && vectorId.endsWith(":vx")) return undefined;
+  if (contractForbids(contract, "u_sin_theta") && vectorId.endsWith(":vy")) return undefined;
   if (vectorId.endsWith(":vx") && /\b(quantity:ux|vector:ux|ux)\b/.test(ids)) return "uₓ = u cosθ";
   if (vectorId.endsWith(":vy") && /\b(quantity:uy|vector:uy|uy)\b/.test(ids)) return "uᵧ = u sinθ";
   return undefined;
@@ -1391,6 +1406,11 @@ function sceneIdToVectorPatterns(id: string) {
   if (!normalized) return [];
   if (normalized.startsWith("emphasis:")) return [];
   if (normalized.startsWith("*:")) return [normalized];
+  if (normalized === "velocity:x_component" || normalized === "velocity:horizontal_component") return ["*:vx"];
+  if (normalized === "velocity:y_component" || normalized === "velocity:vertical_component") return ["*:vy"];
+  if (normalized === "velocity:impact_x_component") return ["*:vx"];
+  if (normalized === "velocity:impact_y_component") return ["*:vy"];
+  if (normalized === "velocity:impact" || normalized === "velocity:resultant") return ["*:v"];
   if (normalized === "gravity:tangent_component" || normalized.includes("gravity_tangent")) return ["*:gravity_tangent_component"];
   if (normalized === "gravity:normal_component" || normalized.includes("gravity_normal")) return ["*:gravity_normal_component"];
   if (normalized === "velocity:tangent_component" || normalized.includes("velocity_tangent")) return ["*:velocity_tangent_component"];
@@ -1670,26 +1690,7 @@ function vectorSymbolLegend(world: string) {
 }
 
 function vectorLabelOffset(component: string, labelLift: number): [number, number] {
-  const lift = Math.max(0.48, labelLift * 1.16);
-  if (component === "x_velocity") return [0.36, -lift * 0.72];
-  if (component === "y_velocity") return [0.48, lift * 0.52];
-  if (component === "acceleration") return [0.44, -lift * 1.05];
-  if (component === "incline_tangent") return [0.36, lift * 0.42];
-  if (component === "incline_normal") return [0.48, lift * 0.92];
-  if (component === "gravity_tangent") return [0.56, lift * 0.52];
-  if (component === "gravity_normal") return [0.56, -lift * 0.92];
-  if (component === "velocity_tangent") return [0.48, lift * 0.62];
-  if (component === "velocity_normal") return [0.48, -lift * 0.78];
-  return [0.44, lift * 0.72];
-}
-
-function readableUnknown(unknown: string) {
-  return unknown
-    .replace(/_/g, " ")
-    .replace(/\bux\b/i, "u_x")
-    .replace(/\buy\b/i, "u_y")
-    .replace(/\br\b/i, "R")
-    .replace(/\bt\b/i, "T");
+  return vectorLabelOffset2D(component, labelLift);
 }
 
 function hasFiniteQuantity(model: ReturnType<typeof buildSceneModel>, key: string) {
@@ -1703,4 +1704,8 @@ function formatNumber(value: number | undefined) {
 
 function uniqueStrings(items: string[]) {
   return Array.from(new Set(items.filter(Boolean)));
+}
+
+function pointsNearlyCoincident(a: V3, b: V3, tolerance: number) {
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) <= tolerance;
 }

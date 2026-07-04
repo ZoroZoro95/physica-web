@@ -88,6 +88,10 @@ type BeatPairing = {
 };
 
 type AuditPayload = {
+  request?: {
+    question_text_solver?: string;
+    question_text?: string;
+  };
   solver?: { status?: string; engine_case?: string; answer?: string; reason?: string };
   walkthrough?: { engine_case?: string; explainer_beats?: unknown[] } | null;
   animation_scene_spec?: SceneSpec | null;
@@ -118,6 +122,8 @@ export default function WalkthroughSyncAuditPage() {
     if (loaded.rawJson && !payload) {
       setRawJson(loaded.rawJson);
       setPayload(loaded.payload);
+      const loadedQuestion = questionFromPayload(loaded.payload);
+      if (loadedQuestion) setQuestion(loadedQuestion);
     }
   }, [payload]);
 
@@ -128,6 +134,8 @@ export default function WalkthroughSyncAuditPage() {
       const nextPayload = detail?.payload ?? (raw ? JSON.parse(raw) as AuditPayload : null);
       setRawJson(raw || JSON.stringify(nextPayload, null, 2));
       setPayload(nextPayload);
+      const loadedQuestion = questionFromPayload(nextPayload);
+      if (loadedQuestion) setQuestion(loadedQuestion);
     };
     window.addEventListener("walkthrough-sync-audit-payload", receivePayload);
     return () => window.removeEventListener("walkthrough-sync-audit-payload", receivePayload);
@@ -136,7 +144,10 @@ export default function WalkthroughSyncAuditPage() {
   const renderJson = () => {
     setError("");
     try {
-      setPayload(JSON.parse(rawJson) as AuditPayload);
+      const nextPayload = JSON.parse(rawJson) as AuditPayload;
+      setPayload(nextPayload);
+      const loadedQuestion = questionFromPayload(nextPayload);
+      if (loadedQuestion) setQuestion(loadedQuestion);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid JSON");
     }
@@ -310,6 +321,12 @@ function normalizePayload(payload: AuditPayload | null) {
     audit: source?.audit,
     pairings: source?.audit?.beat_pairings ?? [],
   };
+}
+
+function questionFromPayload(payload: AuditPayload | null): string {
+  const maybeWrapped = payload as AuditPayload & { data?: AuditPayload };
+  const source = maybeWrapped?.data ?? payload;
+  return source?.request?.question_text_solver || source?.request?.question_text || "";
 }
 
 function readInitialPayload(): { rawJson: string; payload: AuditPayload | null } {
