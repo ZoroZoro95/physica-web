@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEven
 import { contractForbids, contractForStep, contractLabelsForTarget, type BeatVisualSpec } from "@/types/visualContract";
 import {
   boxesOverlap,
+  createLabelPlacementAuthority,
   labelBox,
   labelWidth,
   normalize2,
@@ -624,7 +625,7 @@ function TextbookProjectileTemplate({
     >
       <svg data-audit-board-svg="true" viewBox="0 0 100 62" preserveAspectRatio="xMidYMid meet" style={{ width: "100%", height: "100%", display: "block", background: C.bg }}>
         <defs>
-          <marker id={markerId} markerWidth="6" markerHeight="6" refX="5.5" refY="3" orient="auto" markerUnits="strokeWidth">
+          <marker id={markerId} markerWidth="6" markerHeight="6" refX="5.5" refY="3" orient="auto-start-reverse" markerUnits="strokeWidth">
             <path d="M0,0 L6,3 L0,6 Z" fill={C.surface} />
           </marker>
         </defs>
@@ -651,7 +652,10 @@ function TextbookProjectileTemplate({
         {template === "horizontal-cliff-setup" && <HorizontalCliffTemplate markerId={markerId} variant="setup" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} answerText={finalAnswerText} />}
         {template === "horizontal-cliff-fall-time" && <HorizontalCliffTemplate markerId={markerId} variant="fall-time" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} answerText={finalAnswerText} />}
         {template === "horizontal-cliff-range" && <HorizontalCliffTemplate markerId={markerId} variant="range" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} answerText={finalAnswerText} />}
-        {template === "horizontal-cliff-impact" && <HorizontalCliffTemplate markerId={markerId} variant="impact" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} answerText={finalAnswerText} />}
+        {template === "horizontal-cliff-impact" && <HorizontalCliffTemplate markerId={markerId} variant="impact-speed" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} answerText={finalAnswerText} />}
+        {template === "horizontal-cliff-impact-vertical" && <HorizontalCliffTemplate markerId={markerId} variant="impact-vertical" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} answerText={finalAnswerText} />}
+        {template === "horizontal-cliff-impact-speed" && <HorizontalCliffTemplate markerId={markerId} variant="impact-speed" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} answerText={finalAnswerText} />}
+        {template === "horizontal-cliff-impact-angle" && <HorizontalCliffTemplate markerId={markerId} variant="impact-angle" rangeText={rangeText} heightText={launchHeightText} timeText={timeText} answerText={finalAnswerText} />}
         {template === "wall-clearance-setup" && <WallClearanceTemplate markerId={markerId} variant="setup" />}
         {template === "wall-clearance-relation" && <WallClearanceTemplate markerId={markerId} variant="relation" />}
         {template === "wall-clearance-result" && <WallClearanceTemplate markerId={markerId} variant="result" answerText={finalAnswerText} />}
@@ -750,6 +754,9 @@ type TextbookBeatTemplate =
   | "horizontal-cliff-fall-time"
   | "horizontal-cliff-range"
   | "horizontal-cliff-impact"
+  | "horizontal-cliff-impact-vertical"
+  | "horizontal-cliff-impact-speed"
+  | "horizontal-cliff-impact-angle"
   | "wall-clearance-setup"
   | "wall-clearance-relation"
   | "wall-clearance-result"
@@ -1084,6 +1091,24 @@ function TemplateArrow({ markerId, from, to, dashed = false, width = 0.62, audit
       strokeWidth={width}
       strokeLinecap="square"
       strokeDasharray={dashed ? "2.2 1.7" : undefined}
+      markerEnd={`url(#${markerId})`}
+    />
+  );
+}
+
+function TemplateDimensionArrow({ markerId, from, to, width = 0.42, auditId }: { markerId: string; from: Point2; to: Point2; width?: number; auditId?: string }) {
+  return (
+    <line
+      data-audit-template-line-id={auditId}
+      data-audit-template-angle-deg={roundTemplateNumber(templateLineAngleDeg(from, to))}
+      x1={from.x}
+      y1={from.y}
+      x2={to.x}
+      y2={to.y}
+      stroke={C.surface}
+      strokeWidth={width}
+      strokeLinecap="square"
+      markerStart={`url(#${markerId})`}
       markerEnd={`url(#${markerId})`}
     />
   );
@@ -1479,7 +1504,7 @@ function HeightLaunchTemplate({
   );
 }
 
-type HorizontalCliffTemplateVariant = "setup" | "fall-time" | "range" | "impact";
+type HorizontalCliffTemplateVariant = "setup" | "fall-time" | "range" | "impact-vertical" | "impact-speed" | "impact-angle";
 
 function HorizontalCliffTemplate({
   markerId,
@@ -1487,6 +1512,7 @@ function HorizontalCliffTemplate({
   rangeText,
   heightText,
   timeText,
+  answerText = "",
 }: {
   markerId: string;
   variant: HorizontalCliffTemplateVariant;
@@ -1497,60 +1523,297 @@ function HorizontalCliffTemplate({
 }) {
   const launch = { x: 27, y: 20 };
   const groundY = 49;
-  const impact = { x: 82, y: groundY };
+  const impact = { x: 80, y: groundY };
+  const impactTriangleDx = 15.0;
+  const impactTriangleDy = 8.4;
+  const impactVxTip = { x: impact.x + impactTriangleDx, y: impact.y };
+  const impactVyTip = { x: impact.x, y: impact.y + impactTriangleDy };
+  const impactVTip = { x: impact.x + impactTriangleDx, y: impact.y + impactTriangleDy };
+  const impactAngleText = "θ";
   const showRange = variant === "range";
-  const showTrajectory = variant === "range" || variant === "impact";
-  const showImpact = variant === "impact";
+  const showTrajectory = variant === "range" || variant.startsWith("impact");
+  const showLaunchVector = variant === "setup" || variant === "range";
+  const showGravity = variant === "setup" || variant === "fall-time";
+  const showHeightDimension = variant === "setup" || variant === "fall-time" || variant === "range" || variant.startsWith("impact");
+  const showLaunchPoint = variant === "setup" || variant === "fall-time" || variant === "range";
+  const showImpactVertical = variant === "impact-vertical";
+  const showImpactTriangle = variant === "impact-speed" || variant === "impact-angle";
+  const showImpactAngle = variant === "impact-angle";
+  const launchPointLabel = variant === "setup" || variant === "range" ? "O" : undefined;
+  const gravityFrom = { x: 63, y: 21 };
+  const gravityTo = { x: 63, y: 33 };
+  const launchVectorTo = { x: launch.x + 22, y: launch.y };
+  const heightLabelText = "h";
+  const groundEndX = showImpactVertical ? impact.x + 3.2 : showImpactTriangle ? impactVxTip.x + 2.0 : 93;
+  const labelAuthority = createLabelPlacementAuthority({
+    bounds: { minX: 5, maxX: showImpactVertical || showImpactTriangle ? 99 : 95, minY: 5, maxY: 60 },
+    ui: 1,
+    initialOccupied: [
+      segmentBox({ x: 9, y: groundY }, { x: groundEndX, y: groundY }, 1.1),
+      segmentBox({ x: 10, y: 20 }, { x: launch.x, y: 20 }, 1.0),
+      segmentBox({ x: 10, y: 20 }, { x: 10, y: groundY }, 1.0),
+      ...(showTrajectory ? [segmentBox(launch, impact, 1.4)] : []),
+      ...(showLaunchPoint ? [pointBox(launch, 3.4)] : []),
+      ...(showTrajectory ? [pointBox(impact, showImpactVertical ? 3.0 : 3.2)] : []),
+      ...(showLaunchVector ? [segmentBox(launch, launchVectorTo, 1.35)] : []),
+      ...(showGravity ? [segmentBox(gravityFrom, gravityTo, 1.45)] : []),
+      ...(showHeightDimension ? [segmentBox({ x: 18, y: 22.5 }, { x: 18, y: groundY - 2.5 }, 1.6)] : []),
+      ...(showRange ? [segmentBox({ x: launch.x, y: 56.5 }, { x: impact.x, y: 56.5 }, 1.0)] : []),
+      ...(showImpactVertical ? [segmentBox(impact, { x: impact.x, y: impact.y + 9.0 }, 0.9)] : []),
+      ...(showImpactTriangle ? [
+        segmentBox(impact, impactVxTip, 1.3),
+        segmentBox(impact, impactVyTip, 1.3),
+        segmentBox(impact, impactVTip, 1.4),
+      ] : []),
+    ],
+  });
+  const placedTemplateLabels = labelAuthority.place([
+    ...(showHeightDimension ? [{
+      key: "horizontal-cliff:height-label",
+      x: 21.8,
+      y: 36.0,
+      text: heightLabelText,
+      size: 4.0,
+      leaderFrom: { x: 18, y: 35.5 },
+      priority: 86,
+    }] : []),
+    ...(showLaunchVector ? [{
+      key: "horizontal-cliff:launch-speed-label",
+      x: 42.0,
+      y: 17.0,
+      text: "u = 20 m/s",
+      size: 3.75,
+      leaderFrom: { x: 40, y: 20 },
+      priority: 92,
+    }] : []),
+    ...(showGravity ? [{
+      key: "horizontal-cliff:g-label",
+      x: 66.0,
+      y: 32.0,
+      text: "g",
+      size: 4.0,
+      leaderFrom: gravityTo,
+      priority: 88,
+    }] : []),
+    ...(variant === "setup" ? [
+      {
+        key: "horizontal-cliff:title",
+        x: 43.0,
+        y: 9.0,
+        text: "horizontal launch",
+        size: 4.6,
+        anchor: "start" as const,
+        priority: 45,
+      },
+      {
+        key: "horizontal-cliff:uy-zero",
+        x: 39.0,
+        y: 29.2,
+        text: "uᵧ = 0",
+        size: 4.0,
+        leaderFrom: launch,
+        priority: 82,
+      },
+    ] : []),
+    ...(variant === "fall-time" ? [
+      {
+        key: "horizontal-cliff:fall-time-title",
+        x: 50.0,
+        y: 10.8,
+        text: "fall time from height",
+        size: 4.25,
+        anchor: "middle" as const,
+        priority: 92,
+      },
+      {
+        key: "horizontal-cliff:fall-time-equation",
+        x: 50.0,
+        y: 18.2,
+        text: "h = 1/2 gT²",
+        size: 4.0,
+        anchor: "middle" as const,
+        priority: 74,
+      },
+      {
+        key: "horizontal-cliff:fall-time-result",
+        x: 42.0,
+        y: 58.0,
+        text: timeText === "T" ? "T from vertical fall" : timeText,
+        size: 3.8,
+        anchor: "middle" as const,
+        priority: 78,
+      },
+    ] : []),
+    ...(showRange ? [{
+      key: "horizontal-cliff:range-label",
+      x: 55.0,
+      y: 54.7,
+      text: rangeText === "R" ? "R = vₓT" : rangeText,
+      size: 3.9,
+      anchor: "middle" as const,
+      leaderFrom: { x: 55, y: 56.5 },
+      priority: 82,
+    }] : []),
+    ...(variant === "range" ? [
+      {
+        key: "horizontal-cliff:range-title",
+        x: 42.0,
+        y: 9.0,
+        text: "horizontal distance",
+        size: 4.35,
+        priority: 45,
+      },
+      {
+        key: "horizontal-cliff:range-equation",
+        x: 43.0,
+        y: 15.8,
+        text: "R = vₓT",
+        size: 4.1,
+        priority: 72,
+      },
+    ] : []),
+    ...(showImpactVertical ? [
+      {
+        key: "horizontal-cliff:impact-vy-title",
+        x: 62.0,
+        y: 14.0,
+        text: "vertical speed at impact",
+        size: 4.0,
+        anchor: "middle" as const,
+        priority: 45,
+      },
+      {
+        key: "horizontal-cliff:impact-vy-label",
+        x: 84.8,
+        y: 56.2,
+        text: "vᵧ = gt",
+        size: 3.35,
+        anchor: "start" as const,
+        leaderFrom: { x: impact.x, y: impact.y + 8.4 },
+        priority: 94,
+        locked: true,
+      },
+    ] : []),
+    ...(showImpactTriangle ? [
+      {
+        key: "horizontal-cliff:impact-vx-label",
+        x: 94.0,
+        y: 46.3,
+        text: "vₓ",
+        size: 3.25,
+        anchor: "start" as const,
+        leaderFrom: impactVxTip,
+        priority: 86,
+        locked: true,
+      },
+      {
+        key: "horizontal-cliff:impact-vy-triangle-label",
+        x: 76.8,
+        y: 59.0,
+        text: "vᵧ",
+        size: 3.35,
+        anchor: "end" as const,
+        leaderFrom: impactVyTip,
+        priority: 86,
+        locked: true,
+      },
+      {
+        key: "horizontal-cliff:impact-speed-label",
+        x: 93.4,
+        y: 56.8,
+        text: "v",
+        size: 3.65,
+        anchor: "start" as const,
+        leaderFrom: impactVTip,
+        priority: 90,
+        locked: true,
+      },
+      {
+        key: "horizontal-cliff:impact-triangle-title",
+        x: 55.5,
+        y: 9.0,
+        text: "impact velocity triangle",
+        size: 4.0,
+        anchor: "middle" as const,
+        priority: 45,
+      },
+      ...(showImpactAngle ? [
+        {
+          key: "horizontal-cliff:impact-angle-label",
+          x: 89.7,
+          y: 53.4,
+          text: impactAngleText,
+          size: 3.35,
+          leaderFrom: { x: impact.x + 5.5, y: impact.y + 4.3 },
+          priority: 88,
+        },
+        {
+          key: "horizontal-cliff:impact-angle-equation",
+          x: 61.0,
+          y: 39.6,
+          text: "tan θ = vᵧ / vₓ",
+          size: 3.15,
+          anchor: "start" as const,
+          leaderFrom: { x: impact.x + 5.2, y: impact.y + 4.6 },
+          priority: 96,
+          locked: true,
+        },
+      ] : []),
+    ] : []),
+  ] satisfies LabelCandidate[]);
   return (
     <g>
-      <line x1={9} y1={groundY} x2={93} y2={groundY} stroke={C.surface} strokeWidth={0.62} data-audit-template-line-id="horizontal-cliff-ground" />
+      <line x1={9} y1={groundY} x2={groundEndX} y2={groundY} stroke={C.surface} strokeWidth={0.62} data-audit-template-line-id="horizontal-cliff-ground" />
       <line x1={10} y1={20} x2={launch.x} y2={20} stroke={C.surface} strokeWidth={0.72} data-audit-template-line-id="horizontal-cliff-top" />
       <line x1={10} y1={20} x2={10} y2={groundY} stroke={C.surface} strokeWidth={0.72} data-audit-template-line-id="horizontal-cliff-side" />
       {showTrajectory && (
         <path data-audit-template-line-id="horizontal-cliff-trajectory" d={`M ${launch.x} ${launch.y} C 47 20, 67 34, ${impact.x} ${impact.y}`} fill="none" stroke={C.surface} strokeWidth={0.64} />
       )}
-      <TemplatePoint x={launch.x} y={launch.y} label="O" />
-      {showTrajectory && <TemplatePoint x={impact.x} y={impact.y} label={showRange ? undefined : "B"} />}
-      <TemplateArrow markerId={markerId} from={launch} to={{ x: launch.x + 22, y: launch.y }} auditId="horizontal-cliff-vx" />
-      <TemplateArrow markerId={markerId} from={{ x: 18, y: 23 }} to={{ x: 18, y: groundY - 4 }} width={0.46} auditId="horizontal-cliff-height" />
-      <TextbookSvgText x={21.5} y={35.5} text={heightText === "H" ? "h" : heightText.replace("H =", "h =")} size={4.2} />
-      <TextbookSvgText x={42.0} y={17.0} text="vₓ constant" size={3.75} audit={false} />
-      {variant === "setup" && (
+      {showLaunchPoint && <TemplatePoint x={launch.x} y={launch.y} label={launchPointLabel} />}
+      {showTrajectory && <TemplatePoint x={impact.x} y={impact.y} />}
+      {showLaunchVector && <TemplateArrow markerId={markerId} from={launch} to={{ x: launch.x + 22, y: launch.y }} auditId="horizontal-cliff-vx" />}
+      {showHeightDimension && (
         <>
-          <TextbookSvgText x={43.0} y={9.0} text="horizontal launch" size={4.6} audit={false} />
-          <TextbookSvgText x={52.0} y={25.0} text="uᵧ = 0" size={4.0} audit={false} />
+          <line x1={10} y1={20} x2={18} y2={20} stroke={C.surface} strokeWidth={0.34} data-audit-template-line-id="horizontal-cliff-height-top-guide" />
+          <line x1={10} y1={groundY} x2={18} y2={groundY} stroke={C.surface} strokeWidth={0.34} data-audit-template-line-id="horizontal-cliff-height-bottom-guide" />
+          <TemplateDimensionArrow markerId={markerId} from={{ x: 18, y: 22.5 }} to={{ x: 18, y: groundY - 2.5 }} width={0.42} auditId="horizontal-cliff-height" />
+        </>
+      )}
+      {showGravity && (
+        <>
+          <TemplateArrow markerId={markerId} from={gravityFrom} to={gravityTo} width={0.42} auditId="horizontal-cliff-g" />
         </>
       )}
       {variant === "fall-time" && (
-        <>
-          <TextbookSvgText x={39.0} y={9.0} text="fall time from height" size={4.25} audit={false} />
-          <TextbookSvgText x={42.0} y={15.8} text="h = 1/2 gT²" size={4.0} audit={false} />
-          <TextbookSvgText x={42.0} y={58.0} text={timeText === "T" ? "T from vertical fall" : timeText} size={3.8} anchor="middle" audit={false} />
-        </>
+        <></>
       )}
       {showRange && (
         <>
           <line x1={launch.x} y1={56.5} x2={impact.x} y2={56.5} stroke={C.surface} strokeWidth={0.46} data-audit-template-line-id="horizontal-cliff-range" />
-          <TextbookSvgText x={55.0} y={54.7} text={rangeText === "R" ? "R = vₓT" : rangeText} size={3.9} anchor="middle" audit={false} />
         </>
       )}
       {variant === "range" && (
+        <></>
+      )}
+      {showImpactVertical && (
         <>
-          <TextbookSvgText x={42.0} y={9.0} text="horizontal distance" size={4.35} audit={false} />
-          <TextbookSvgText x={43.0} y={15.8} text="R = vₓT" size={4.1} audit={false} />
+          <TemplateArrow markerId={markerId} from={impact} to={{ x: impact.x, y: impact.y + 9.0 }} width={0.54} auditId="horizontal-cliff-impact-vy" />
         </>
       )}
-      {showImpact && (
+      {showImpactTriangle && (
         <>
-          <TemplateArrow markerId={markerId} from={impact} to={{ x: impact.x + 13, y: impact.y }} width={0.46} auditId="horizontal-cliff-impact-vx" />
-          <TemplateArrow markerId={markerId} from={impact} to={{ x: impact.x, y: impact.y + 6.2 }} width={0.46} auditId="horizontal-cliff-impact-vy" />
-          <TemplateArrow markerId={markerId} from={impact} to={{ x: impact.x + 12, y: impact.y + 6.2 }} width={0.52} auditId="horizontal-cliff-impact-v" />
-          <TextbookSvgText x={78.0} y={40.5} text="impact velocity" size={3.85} anchor="middle" audit={false} />
-          <TextbookSvgText x={93.0} y={47.2} text="vₓ" size={3.4} audit={false} />
-          <TextbookSvgText x={78.2} y={57.8} text="vᵧ" size={3.4} audit={false} />
-          <TextbookSvgText x={60.0} y={9.0} text="|v| and φ from triangle" size={4.0} anchor="middle" audit={false} />
+          <TemplateArrow markerId={markerId} from={impact} to={impactVxTip} width={0.46} auditId="horizontal-cliff-impact-vx" />
+          <TemplateArrow markerId={markerId} from={impact} to={impactVyTip} width={0.46} auditId="horizontal-cliff-impact-vy" />
+          <TemplateArrow markerId={markerId} from={impact} to={impactVTip} width={0.52} auditId="horizontal-cliff-impact-v" />
+          {showImpactAngle && (
+            <>
+              <path d={`M ${impact.x + 2.9} ${impact.y} L ${impact.x + 2.9} ${impact.y + 2.9} L ${impact.x} ${impact.y + 2.9}`} fill="none" stroke={C.surface} strokeWidth={0.36} data-audit-template-line-id="horizontal-cliff-impact-right-angle" />
+              <path d={`M ${impact.x + 7.1} ${impact.y} A 7.1 7.1 0 0 1 ${impact.x + 4.6} ${impact.y + 5.4}`} fill="none" stroke={C.surface} strokeWidth={0.46} data-audit-template-line-id="horizontal-cliff-impact-angle" />
+            </>
+          )}
         </>
       )}
+      <TextbookLabelLayer labels={placedTemplateLabels} />
     </g>
   );
 }
@@ -2729,6 +2992,24 @@ function TextbookSvgText({
     >
       {text}
     </text>
+  );
+}
+
+function TextbookLabelLayer({ labels }: { labels: PlacedLabel[] }) {
+  return (
+    <g data-audit-label-layer="template-authority">
+      {labels.map(label => (
+        <TextbookSvgText
+          key={label.key}
+          x={label.x}
+          y={label.y}
+          text={label.text}
+          size={label.size}
+          anchor={label.anchor}
+          auditKey={label.key}
+        />
+      ))}
+    </g>
   );
 }
 

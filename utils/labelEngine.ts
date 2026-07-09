@@ -20,6 +20,7 @@ export type LabelCandidate<PointT extends PointLike = PointLike> = {
   anchor?: LabelAnchor;
   leaderFrom?: PointT;
   priority?: number;
+  locked?: boolean;
 };
 
 export type LabelBox = {
@@ -38,7 +39,48 @@ export type LabelBoxInput<PointT extends PointLike = PointLike> =
   Pick<LabelCandidate<PointT>, "text" | "size" | "x" | "y">
   & Partial<Pick<LabelCandidate<PointT>, "key" | "anchor" | "boxed" | "color" | "leaderFrom" | "priority">>;
 
+export type LabelPlacementAuthority<PointT extends PointLike = PointLike> = {
+  reserveBox: (box: LabelBox | undefined | null) => void;
+  reservePoint: (point: PointT, radius: number) => void;
+  reserveSegment: (from: PointT, to: PointT, pad: number) => void;
+  place: (candidates: LabelCandidate<PointT>[]) => PlacedLabel<PointT>[];
+  occupied: () => LabelBox[];
+};
+
+export type LabelPlacementAuthorityOptions = {
+  bounds: LabelBounds;
+  ui: number;
+  initialOccupied?: LabelBox[];
+};
+
 const LABEL_CHAR_WIDTH = 0.68;
+
+export function createLabelPlacementAuthority<PointT extends PointLike>({
+  bounds,
+  ui,
+  initialOccupied = [],
+}: LabelPlacementAuthorityOptions): LabelPlacementAuthority<PointT> {
+  const occupiedBoxes = initialOccupied.filter(validBox);
+  return {
+    reserveBox(box) {
+      if (box && validBox(box)) occupiedBoxes.push(box);
+    },
+    reservePoint(point, radius) {
+      occupiedBoxes.push(pointBox(point, radius));
+    },
+    reserveSegment(from, to, pad) {
+      occupiedBoxes.push(segmentBox(from, to, pad));
+    },
+    place(candidates) {
+      const placed = placeLabels(candidates, bounds, ui, occupiedBoxes);
+      occupiedBoxes.push(...placed.map(label => label.box).filter(validBox));
+      return placed;
+    },
+    occupied() {
+      return [...occupiedBoxes];
+    },
+  };
+}
 
 export function placeLabels<PointT extends PointLike>(
   candidates: LabelCandidate<PointT>[],
@@ -52,6 +94,12 @@ export function placeLabels<PointT extends PointLike>(
     .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.sourceIndex - b.sourceIndex)
     .map(candidate => {
       const base: LabelCandidate<PointT> = { ...candidate };
+      if (base.locked) {
+        const locked = clampLabelToBounds(base, bounds, ui);
+        const placed = { ...locked, box: labelBox(locked), moved: false };
+        occupied.push(placed.box);
+        return placed;
+      }
       const placements = labelPlacementCandidates(base, bounds, ui);
       const clean = placements.find(option => !occupied.some(box => boxesOverlap(option.box, box, 0.12 * ui)));
       const placed = clean ?? leastBadPlacement(placements, occupied, bounds, ui);
