@@ -1290,6 +1290,7 @@ function SolutionPlayer({
   const [compactLayout, setCompactLayout] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
   const [stepProgress, setStepProgress] = useState(0);
+  const [playbackRunId, setPlaybackRunId] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [playbackMode, setPlaybackMode] = useState<"step" | "full">("step");
   const [solutionMode, setSolutionMode] = useState<"explainer" | "complete">(explainerBeats.length ? "explainer" : "complete");
@@ -1336,10 +1337,7 @@ function SolutionPlayer({
     : undefined;
   const visualProgress = stepProgress;
   const visualStepId = playbackMode === "full" ? "__full_lifecycle" : (activeBeat?.step_id || step?.id || "");
-  const visualTitle = `${activeBeat?.title ?? ""} ${step?.title ?? ""}`.toLowerCase();
-  const fullAnimationActive = playbackMode === "full"
-    || displayStepIndex >= stepCount - 1
-    || /\b(answer|calculate|calculation|final|sanity|takeaway|complete)\b/.test(visualTitle);
+  const fullAnimationActive = playbackMode === "full";
   const playbackStatusLabel = playbackMode === "full"
     ? `Full animation · step ${displayStepIndex + 1}/${stepCount}`
     : effectiveSolutionMode === "explainer"
@@ -1350,26 +1348,32 @@ function SolutionPlayer({
     || activeBeat?.learner_message
     || step?.explanation
     || "";
+  const visualHeaderTitle = playbackMode === "full"
+    ? "Full animation"
+    : activeBeat?.title || step?.title || "Animation";
+
+  const restartPlaybackFromStart = (playing: boolean) => {
+    setStepProgress(0);
+    setIsPlaying(playing);
+    setPlaybackRunId(value => value + 1);
+  };
 
   const goToStep = (index: number) => {
     setPlaybackMode("step");
     setActiveStep(clamp(index, 0, Math.max(stepCount - 1, 0)));
-    setStepProgress(0);
-    setIsPlaying(true);
+    restartPlaybackFromStart(true);
   };
 
   useEffect(() => {
     setActiveStep(0);
-    setStepProgress(0);
-    setIsPlaying(true);
+    restartPlaybackFromStart(true);
     setPlaybackMode("step");
     setSolutionMode(explainerBeats.length ? "explainer" : "complete");
   }, [playback.solveResult.debug_report_id, explainerBeats.length]);
 
   useEffect(() => {
     if (playbackMode === "full") return;
-    setStepProgress(0);
-    setIsPlaying(true);
+    restartPlaybackFromStart(true);
     setPlaybackMode("step");
   }, [activeStep, playbackMode]);
 
@@ -1391,7 +1395,7 @@ function SolutionPlayer({
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [isPlaying, speed, activeStep, playbackMode, steps.length]);
+  }, [isPlaying, speed, activeStep, playbackMode, steps.length, playbackRunId]);
 
   useEffect(() => {
     const updateLayout = () => setCompactLayout(window.innerWidth < 1180);
@@ -1584,7 +1588,7 @@ function SolutionPlayer({
           }}>
             <div style={{ minWidth: 0 }}>
               <div style={{ color: T.textOnDark, fontWeight: 800, fontSize: 14 }}>
-                {step?.title ?? "Animation"}
+                {formatMathDisplay(visualHeaderTitle)}
               </div>
               <div style={{ color: "rgba(251,252,250,0.76)", fontSize: 11, marginTop: 3, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: compactLayout || isAnimationExpanded ? "70vw" : "42vw" }}>
                 {visualStudentText ? formatMathDisplay(visualStudentText) : ""}
@@ -1659,20 +1663,23 @@ function SolutionPlayer({
           <div style={{
             padding: 12,
             borderTop: `1px solid ${T.borderSub}`,
+            background: "#080812",
+            boxShadow: "0 -10px 24px rgba(0,0,0,0.28)",
             display: "flex",
             gap: 8,
             justifyContent: "center",
             alignItems: "center",
             flexWrap: "wrap",
             flexShrink: 0,
+            position: "relative",
+            zIndex: 5,
           }}>
             <button data-guide-id="step-prev" onClick={() => goToStep(displayStepIndex - 1)} disabled={!canPrev} style={playerButtonStyle(canPrev)}>
               Previous
             </button>
             <button data-guide-id="step-play" onClick={() => {
               if (stepProgress >= 1) {
-                setStepProgress(0);
-                setIsPlaying(true);
+                restartPlaybackFromStart(true);
                 return;
               }
               setIsPlaying(value => !value);
@@ -1684,8 +1691,7 @@ function SolutionPlayer({
             </button>
             <button data-guide-id="step-replay" onClick={() => {
               setPlaybackMode("step");
-              setStepProgress(0);
-              setIsPlaying(true);
+              restartPlaybackFromStart(true);
             }} style={playerButtonStyle(true)}>
               Replay step
             </button>
@@ -1693,9 +1699,8 @@ function SolutionPlayer({
               data-guide-id="full-animation"
               onClick={() => {
                 setPlaybackMode("full");
-                setStepProgress(0);
                 setActiveStep(0);
-                setIsPlaying(true);
+                restartPlaybackFromStart(true);
               }}
               style={playerButtonStyle(true)}
             >
@@ -1773,8 +1778,7 @@ function SolutionPlayer({
                     setSolutionMode("explainer");
                     setPlaybackMode("step");
                     setActiveStep(0);
-                    setStepProgress(0);
-                    setIsPlaying(true);
+                    restartPlaybackFromStart(true);
                   }}
                   disabled={!explainerBeats.length}
                   style={solutionModeToggleButtonStyle(effectiveSolutionMode === "explainer", Boolean(explainerBeats.length))}
@@ -1787,8 +1791,7 @@ function SolutionPlayer({
                     setSolutionMode("complete");
                     setPlaybackMode("step");
                     setActiveStep(0);
-                    setStepProgress(0);
-                    setIsPlaying(false);
+                    restartPlaybackFromStart(false);
                   }}
                   style={solutionModeToggleButtonStyle(effectiveSolutionMode === "complete", true)}
                   title="Full textbook-style solution"
@@ -2782,7 +2785,7 @@ function WalkthroughVisual({
                 revealIds={activeReveal?.revealIds ?? []}
                 highlightIds={activeReveal?.highlightIds ?? []}
                 accumulateTeachingVectors={false}
-                vectorMode={fullAnimationActive ? "none" : "beat"}
+                vectorMode={fullAnimationActive ? "lifecycle" : "beat"}
               />
             </TeachingScenePanel>
           )}
