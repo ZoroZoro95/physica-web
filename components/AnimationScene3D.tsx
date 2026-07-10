@@ -459,9 +459,10 @@ export default function AnimationScene3D({
             origin={impactAngleInfo.origin}
             fromAngle={0}
             toAngle={impactAngleInfo.angle}
-            radius={Math.max(0.34, model.vectorScale * 0.72)}
+            radius={Math.max(0.48, model.vectorScale * 1.02)}
             label={`θ = ${formatNumber(impactAngleInfo.degrees)}°`}
             color="#ffd166"
+            keepLabelAbove
           />
         )}
 
@@ -655,12 +656,15 @@ function DynamicVectorLine({
 }) {
   const resolved = resolveLiveVector(vector, model, progress, Boolean(emphasized));
   if (!resolved) return null;
+  const displayLabel = labelOverride
+    ? formatExplicitVectorLabel(labelOverride)
+    : resolved.label;
   return (
     <VectorLine
       from={resolved.from}
       to={resolved.to}
       color={emphasisColor ?? resolved.color}
-      label={labelOverride ?? resolved.label}
+      label={displayLabel}
       component={vector.component}
       labelLift={model.labelLift}
       emphasized={Boolean(emphasized)}
@@ -943,6 +947,7 @@ function AngleArc({
   radius,
   label,
   color,
+  keepLabelAbove = false,
 }: {
   origin: V3;
   fromAngle: number;
@@ -950,6 +955,7 @@ function AngleArc({
   radius: number;
   label: string;
   color: string;
+  keepLabelAbove?: boolean;
 }) {
   const sweep = normalizeSmallAngle(toAngle - fromAngle);
   const segments = 28;
@@ -959,15 +965,24 @@ function AngleArc({
   });
   const midAngle = fromAngle + sweep / 2;
   const labelRadius = radius + 0.22;
+  const defaultLabel: V3 = [
+    origin[0] + labelRadius * Math.cos(midAngle),
+    origin[1] + labelRadius * Math.sin(midAngle),
+    origin[2] + 0.02,
+  ];
+  const labelPosition: V3 = keepLabelAbove && sweep < 0
+    ? [origin[0] + radius * 0.58, origin[1] + radius * 0.72, origin[2] + 0.02]
+    : defaultLabel;
   return (
     <group>
       <Line points={points} color={color} lineWidth={3} />
       <Line points={[origin, [origin[0] + radius * 0.86 * Math.cos(fromAngle), origin[1] + radius * 0.86 * Math.sin(fromAngle), origin[2] + 0.02]]} color={color} lineWidth={2} transparent opacity={0.7} />
       <Line points={[origin, [origin[0] + radius * 0.86 * Math.cos(toAngle), origin[1] + radius * 0.86 * Math.sin(toAngle), origin[2] + 0.02]]} color={color} lineWidth={2} transparent opacity={0.7} />
       <SceneLabel
-        position={[origin[0] + labelRadius * Math.cos(midAngle), origin[1] + labelRadius * Math.sin(midAngle), origin[2] + 0.02]}
+        position={labelPosition}
         text={label}
         color={color}
+        anchor={keepLabelAbove && sweep < 0 ? "start" : "center"}
       />
     </group>
   );
@@ -1217,7 +1232,7 @@ function buildSceneModel(sceneSpec: AnimationSceneSpec) {
   const allPoints3 = trajectories.flatMap(item => item.points);
   const baseMaxX = Math.max(1, ...allPoints3.map(point => point[0]), landing[0], wall?.x ?? 0, target?.[0] ?? 0, impact?.[0] ?? 0, collision?.[0] ?? 0);
   const maxY = Math.max(1, ...allPoints3.map(point => point[1]), apex[1], wall?.height ?? 0, target?.[1] ?? 0, impact?.[1] ?? 0, collision?.[1] ?? 0);
-  const rightLabelPad = world === "height_launch" ? Math.max(0.9, baseMaxX * 0.12) : 0;
+  const rightLabelPad = world === "height_launch" ? Math.max(1.35, baseMaxX * 0.22) : 0;
   const maxX = baseMaxX + rightLabelPad;
   const motions = (sceneSpec.motions ?? (sceneSpec.motion ? [{ actor: rawTrajectories[0].actor, ...sceneSpec.motion }] : []))
     .map(motion => ({ ...motion, timeWindow: normalizeTimeWindow(motion.time_window) }));
@@ -1229,7 +1244,7 @@ function buildSceneModel(sceneSpec: AnimationSceneSpec) {
   const sceneSpan = Math.max(maxX, maxY, 1);
   const bottomLabelPad = world === "height_launch" ? Math.max(0.45, sceneSpan * 0.08) : 0;
   const center = { x: maxX / 2, y: Math.max(0.2, maxY / 2 - bottomLabelPad), z: 0 };
-  const cameraDistance = Math.max(8.0, sceneSpan * (world === "height_launch" ? 2.05 : 1.85));
+  const cameraDistance = Math.max(world === "height_launch" ? 7.1 : 8.0, sceneSpan * (world === "height_launch" ? 1.9 : 1.85));
   const bookmarkTarget = (targetId: string): V3 => {
     if (targetId === "scene") return [center.x, center.y, center.z];
     const rawPoint = sceneSpec.geometry.points[targetId];
@@ -1268,7 +1283,9 @@ function buildSceneModel(sceneSpec: AnimationSceneSpec) {
       ];
     }),
   );
-  const vectorBase = Math.max(0.56, Math.min(1.24, sceneSpan * 0.136));
+  const vectorBase = world === "height_launch"
+    ? Math.max(0.68, Math.min(1.46, sceneSpan * 0.155))
+    : Math.max(0.56, Math.min(1.24, sceneSpan * 0.136));
   const showLandingMarker = Boolean(sceneSpec.geometry.points.landing)
     && !["incline", "two_inclines", "multi_projectile", "incline_collision"].includes(world)
     && !String(sceneSpec.geometry.points.landing?.label ?? "").toLowerCase().includes("reference");
@@ -1917,6 +1934,15 @@ function formatVectorLabel(label: string, component?: string, progress = 1) {
   return label;
 }
 
+function formatExplicitVectorLabel(label: string) {
+  return label
+    .replace(/v_x/g, "vₓ")
+    .replace(/v_y/g, "vᵧ")
+    .replace(/u_x/g, "uₓ")
+    .replace(/u_y/g, "uᵧ")
+    .replace(/theta/g, "θ");
+}
+
 function vectorSymbolLegend(world: string) {
   const base = "v: velocity · vₓ: horizontal · vᵧ: vertical";
   return world === "incline" || world === "incline_collision" || world === "two_inclines"
@@ -1971,19 +1997,26 @@ function seedVectorLabelPosition(from: V3, to: V3, component: string, labelLift:
   const uy = dy / length;
   const nx = -uy;
   const ny = ux;
-  const forward = Math.max(0.1, labelLift * 0.18);
-  const side = Math.max(0.32, labelLift * 0.56);
+  const forward = Math.max(0.16, labelLift * 0.34);
+  const side = Math.max(0.42, labelLift * 0.78);
   if (component === "x_velocity" && Math.abs(ux) > 0.72) {
     return [
-      to[0] + ux * forward,
-      to[1] + uy * forward + Math.max(0.08, labelLift * 0.16),
+      to[0] + ux * Math.max(forward, labelLift * 0.42),
+      to[1] + uy * forward + Math.max(0.16, labelLift * 0.28),
       to[2] + 0.06,
     ];
   }
   if (component === "y_velocity" && uy < -0.2) {
     return [
-      to[0] + Math.max(0.08, labelLift * 0.16),
-      to[1] + uy * forward,
+      to[0] - Math.max(0.16, labelLift * 0.26),
+      to[1] + uy * Math.max(forward, labelLift * 0.36),
+      to[2] + 0.06,
+    ];
+  }
+  if (component === "velocity" && uy < -0.2 && ux > 0.2) {
+    return [
+      to[0] + ux * Math.max(forward, labelLift * 0.44) + nx * side * 0.5,
+      to[1] + uy * Math.max(forward, labelLift * 0.44) + ny * side * 0.5,
       to[2] + 0.06,
     ];
   }
@@ -2019,7 +2052,7 @@ function vectorLabelSideSign(component: string, ux: number, uy: number) {
 
 function vectorLabelAnchor(from: V3, to: V3, component?: string): SceneLabelAnchor {
   if (component === "x_velocity") return to[0] < from[0] ? "end" : "start";
-  if (component === "y_velocity") return "start";
+  if (component === "y_velocity") return "end";
   return to[0] < from[0] ? "end" : "start";
 }
 
