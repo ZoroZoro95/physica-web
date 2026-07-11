@@ -15,7 +15,7 @@ Open `http://localhost:3000`.
 ## Required Environment
 
 ```bash
-NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+BACKEND_API_URL=http://127.0.0.1:8000
 NEXT_PUBLIC_GOOGLE_CLIENT_ID=
 ```
 
@@ -40,4 +40,4 @@ python3 ../scripts/deployment_gate.py
 
 ## Deployment
 
-Deploy this directory to Vercel. Set `NEXT_PUBLIC_API_URL` to the Railway backend URL and `NEXT_PUBLIC_GOOGLE_CLIENT_ID` to the same Google OAuth client audience used by the backend.
+Deploy this directory to Vercel. Set `BACKEND_API_URL` to the Railway backend URL and `NEXT_PUBLIC_GOOGLE_CLIENT_ID` to the same Google OAuth client audience used by the backend. Browser requests use the same-origin `/api/backend` proxy so student devices do not need to resolve Railway directly.

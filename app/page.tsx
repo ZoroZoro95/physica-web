@@ -13,7 +13,7 @@ import type { BeatVisualSpec } from "@/types/visualContract";
 const SceneViewer = dynamic(() => import("@/components/SceneViewer"), { ssr: false });
 const AnimationScene3D = dynamic(() => import("@/components/AnimationScene3D"), { ssr: false });
 
-const API = (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
+const API = "/api/backend";
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
 
 declare global {

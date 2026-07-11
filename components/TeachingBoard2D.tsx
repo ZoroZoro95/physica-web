@@ -633,6 +633,14 @@ function TextbookProjectileTemplate({
           </marker>
         </defs>
         <TextbookAuditHooks vectors={vectors} points={sceneSpec.geometry.points} surfaces={sceneSpec.geometry.surfaces ?? []} actors={sceneSpec.actors ?? []} />
+        {template === "level-ground-setup" && <LevelGroundTemplate markerId={markerId} variant="setup" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
+        {template === "level-ground-components" && <LevelGroundTemplate markerId={markerId} variant="components" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
+        {template === "level-ground-time-to-peak" && <LevelGroundTemplate markerId={markerId} variant="peak-time" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
+        {template === "level-ground-landing-condition" && <LevelGroundTemplate markerId={markerId} variant="landing-condition" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
+        {template === "level-ground-time-flight" && <LevelGroundTemplate markerId={markerId} variant="time" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
+        {template === "level-ground-apex" && <LevelGroundTemplate markerId={markerId} variant="apex" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
+        {template === "level-ground-range" && <LevelGroundTemplate markerId={markerId} variant="range" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
+        {template === "level-ground-summary" && <LevelGroundTemplate markerId={markerId} variant="summary" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
         {template === "launch-components" && <LaunchComponentsTemplate markerId={markerId} thetaText={thetaText} thetaDeg={thetaDeg} />}
         {template === "apex" && <ApexTemplate markerId={markerId} heightText={heightText} />}
         {template === "descent-components" && <DescentComponentsTemplate markerId={markerId} thetaText={thetaText} thetaDeg={thetaDeg} />}
@@ -743,6 +751,14 @@ function horizontalDirectionForScene(sceneSpec: SceneSpec2D) {
 }
 
 type TextbookBeatTemplate =
+  | "level-ground-setup"
+  | "level-ground-components"
+  | "level-ground-time-to-peak"
+  | "level-ground-landing-condition"
+  | "level-ground-time-flight"
+  | "level-ground-apex"
+  | "level-ground-range"
+  | "level-ground-summary"
   | "launch-components"
   | "apex"
   | "descent-components"
@@ -1215,6 +1231,184 @@ function descendingInclineFrame(alphaDeg: number) {
   const length = Math.abs(alphaDeg) >= 50 ? 47 : 74;
   const start = Math.abs(alphaDeg) >= 50 ? { x: 39, y: 11 } : { x: 16, y: 16 };
   return inclineSegment(-Math.abs(alphaDeg), start, length);
+}
+
+type LevelGroundTemplateVariant = "setup" | "components" | "peak-time" | "landing-condition" | "time" | "apex" | "range" | "summary";
+
+function LevelGroundTemplate({
+  markerId,
+  variant,
+  thetaText,
+  thetaDeg,
+  rangeText,
+  heightText,
+  timeText,
+  speedText,
+}: {
+  markerId: string;
+  variant: LevelGroundTemplateVariant;
+  thetaText: string;
+  thetaDeg: number;
+  rangeText: string;
+  heightText: string;
+  timeText: string;
+  answerText: string;
+  speedText: string;
+}) {
+  const o = { x: 17, y: 47 };
+  const a = { x: 50, y: 18 };
+  const b = { x: 83, y: 47 };
+  const theta = Math.max(12, Math.min(72, Math.abs(signedAngleDeg(thetaDeg || 45))));
+  const launchTip = pointAtAngle(o, 31, theta);
+  const uxTip = { x: launchTip.x, y: o.y };
+  const uyTip = launchTip;
+  const groundY = 47;
+  const drawsWholePath = variant !== "setup" && variant !== "components" && variant !== "peak-time";
+  const cleanSpeedText = speedText.replace(/\s*m\/s$/, " m/s").replace(/\s+/g, " ").trim();
+  const launchSpeedLabel = cleanSpeedText === "u" ? "u" : `u = ${cleanSpeedText}`;
+  const labelAuthority = createLabelPlacementAuthority<Point2>({
+    bounds: { minX: 5, maxX: 95, minY: 5, maxY: 60 },
+    ui: 3.2,
+    initialOccupied: [
+      segmentBox({ x: 8, y: groundY }, { x: 93, y: groundY }, 1.0),
+      segmentBox(o, launchTip, 1.25),
+      pointBox(o, 4.0),
+      ...(drawsWholePath ? [
+        segmentBox(o, b, 1.0),
+        pointBox(a, 3.6),
+        pointBox(b, 4.0),
+      ] : []),
+      ...(variant === "peak-time" ? [
+        segmentBox(o, a, 1.0),
+        segmentBox({ x: 30, y: 42 }, { x: 30, y: 27 }, 1.2),
+        segmentBox({ x: 65, y: 25 }, { x: 65, y: 40 }, 1.2),
+        pointBox(a, 4.0),
+      ] : []),
+      ...(variant === "components" ? [
+        segmentBox(o, uxTip, 1.2),
+        segmentBox(uxTip, uyTip, 1.2),
+      ] : []),
+      ...(variant === "apex" || variant === "summary" ? [segmentBox({ x: a.x - 6, y: a.y + 4.5 }, { x: a.x - 6, y: groundY }, 1.0)] : []),
+      ...(variant === "range" || variant === "summary" ? [segmentBox({ x: o.x, y: 55.5 }, { x: b.x, y: 55.5 }, 1.0)] : []),
+    ],
+  });
+  const labels: LabelCandidate<Point2>[] = [];
+  if (variant === "setup") {
+    labels.push(
+      { key: "level-ground:u", x: launchTip.x + 2.2, y: launchTip.y - 2.2, text: launchSpeedLabel, size: 4.6, priority: 80 },
+      { key: "level-ground:theta", x: o.x + 14.5, y: o.y - 3.6, text: thetaText, size: 3.9, priority: 78 },
+    );
+  }
+  if (variant === "components") {
+    labels.push(
+      { key: "level-ground:ux", x: o.x + 15.8, y: o.y + 9.2, text: "uₓ = u cos θ", size: 4.15, anchor: "start", priority: 92 },
+      { key: "level-ground:uy", x: uxTip.x + 5.0, y: (uxTip.y + uyTip.y) / 2, text: "uᵧ = u sin θ", size: 3.65, priority: 91 },
+      { key: "level-ground:u", x: launchTip.x + 2.5, y: launchTip.y - 1.8, text: "u", size: 4.9, priority: 80 },
+      { key: "level-ground:theta", x: o.x + 13.2, y: o.y - 3.2, text: thetaText, size: 3.6, priority: 76 },
+    );
+  }
+  if (variant === "time") {
+    labels.push(
+      { key: "level-ground:time-factor", x: 50.0, y: 36.0, text: "T(uᵧ − gT/2) = 0", size: 4.2, anchor: "middle", priority: 90, locked: true },
+      { key: "level-ground:zero-root", x: 27.0, y: 58.0, text: "T = 0  (launch)", size: 3.7, anchor: "middle", priority: 88, locked: true },
+      { key: "level-ground:time", x: 70.0, y: 58.0, text: "T = 2uᵧ/g  (landing)", size: 3.7, anchor: "middle", priority: 89, locked: true },
+    );
+  }
+  if (variant === "landing-condition") {
+    labels.push(
+      { key: "level-ground:dy", x: 50.0, y: 41.0, text: "Δy = 0", size: 4.4, anchor: "middle", priority: 92, locked: true },
+      { key: "level-ground:landing-equation", x: 50.0, y: 58.0, text: "0 = uᵧT − 1/2 gT²", size: 4.4, anchor: "middle", priority: 91, locked: true },
+    );
+  }
+  if (variant === "peak-time") {
+    labels.push(
+      { key: "level-ground:peak-vy-equation", x: 12.0, y: 13.2, text: "vᵧ(t) = uᵧ − gt", size: 3.8, priority: 95, locked: true },
+      { key: "level-ground:peak-vy0", x: a.x + 8.0, y: a.y - 1.0, text: "at A: vᵧ = 0", size: 4.0, priority: 92, locked: true },
+      { key: "level-ground:peak-zero-equation", x: 50.0, y: 45.2, text: "0 = uᵧ − gtₚₑₐₖ", size: 3.9, anchor: "middle", priority: 91, locked: true },
+      { key: "level-ground:peak-time", x: 50.0, y: 53.2, text: "tₚₑₐₖ = uᵧ/g", size: 4.1, anchor: "middle", priority: 90, locked: true },
+      { key: "level-ground:peak-uy", x: 32.8, y: 27.0, text: "uᵧ", size: 4.6, priority: 82, locked: true },
+      { key: "level-ground:peak-g", x: 70.5, y: 31.0, text: "g", size: 5.0, priority: 80, locked: true },
+    );
+  }
+  if (variant === "apex") {
+    labels.push(
+      { key: "level-ground:vy0", x: a.x + 8.0, y: a.y - 1.0, text: "vᵧ = 0", size: 4.8, priority: 91 },
+      { key: "level-ground:ux-apex", x: a.x + 24.0, y: a.y - 2.0, text: "uₓ", size: 4.5, priority: 80 },
+      { key: "level-ground:height", x: a.x - 14.0, y: 34.0, text: heightText, size: 4.15, anchor: "end", priority: 88 },
+    );
+  }
+  if (variant === "range") {
+    labels.push(
+      { key: "level-ground:range", x: 50.0, y: 60.0, text: rangeText === "R" ? "R = uₓT" : rangeText, size: 4.6, anchor: "middle", priority: 90 },
+      { key: "level-ground:ux-range", x: 43.0, y: 37.0, text: "uₓ", size: 4.6, priority: 75 },
+    );
+  }
+  if (variant === "summary") {
+    labels.push(
+      { key: "level-ground:summary-time", x: 16.0, y: 13.0, text: timeText, size: 4.0, priority: 92 },
+      { key: "level-ground:summary-height", x: 50.0, y: 32.5, text: heightText, size: 4.0, priority: 91 },
+      { key: "level-ground:summary-range", x: 50.0, y: 60.0, text: rangeText, size: 4.2, anchor: "middle", priority: 90 },
+    );
+  }
+  const placedLabels = labelAuthority.place(labels);
+  return (
+    <g data-audit-template-family="level-ground">
+      <line x1={8} y1={groundY} x2={93} y2={groundY} stroke={C.surface} strokeWidth={0.5} data-audit-template-line-id="level-ground-ground" />
+      {drawsWholePath && (
+        <path data-audit-template-line-id="level-ground-trajectory" d={`M ${o.x} ${o.y} C 31 18, 60 16, ${b.x} ${b.y}`} fill="none" stroke={C.surface} strokeWidth={0.64} />
+      )}
+      <TemplatePoint x={o.x} y={o.y} label="O" />
+      {drawsWholePath && <TemplatePoint x={b.x} y={b.y} label="B" />}
+      {(variant === "setup" || variant === "components") && (
+        <>
+          <line x1={o.x} y1={o.y} x2={o.x + 34} y2={o.y} stroke={C.surface} strokeWidth={0.36} strokeDasharray="2 1.5" data-audit-template-line-id="level-ground-horizontal-reference" />
+          <TemplateArrow markerId={markerId} from={o} to={launchTip} width={0.58} auditId="level-ground-u" />
+          <polyline points={templateAngleArcPoints(o, 10.8, 0, theta, 16)} fill="none" stroke={C.surface} strokeWidth={0.48} data-audit-template-line-id="level-ground-theta-arc" />
+        </>
+      )}
+      {variant === "components" && (
+        <>
+          <TemplateArrow markerId={markerId} from={o} to={uxTip} width={0.5} auditId="level-ground-ux" />
+          <TemplateArrow markerId={markerId} from={uxTip} to={uyTip} width={0.5} auditId="level-ground-uy" />
+          <path d={`M ${uxTip.x - 3.2} ${uxTip.y} L ${uxTip.x - 3.2} ${uxTip.y - 3.2} L ${uxTip.x} ${uxTip.y - 3.2}`} fill="none" stroke={C.surface} strokeWidth={0.38} data-audit-template-line-id="level-ground-component-right-angle" />
+        </>
+      )}
+      {variant === "peak-time" && (
+        <>
+          <path data-audit-template-line-id="level-ground-peak-trajectory" d={`M ${o.x} ${o.y} C 29 27, 40 19, ${a.x} ${a.y}`} fill="none" stroke={C.surface} strokeWidth={0.64} />
+          <TemplatePoint x={a.x} y={a.y} />
+          <TextbookSvgText x={a.x - 2.2} y={a.y - 5.3} text="A" size={5.8} audit={false} />
+          <TemplateArrow markerId={markerId} from={{ x: 30, y: 42 }} to={{ x: 30, y: 27 }} width={0.46} auditId="level-ground-peak-uy" />
+          <TemplateArrow markerId={markerId} from={{ x: 65, y: 25 }} to={{ x: 65, y: 40 }} width={0.46} auditId="level-ground-peak-g" />
+        </>
+      )}
+      {variant === "landing-condition" && (
+        <>
+          <line x1={o.x + 4} y1={43.0} x2={b.x - 4} y2={43.0} stroke={C.surface} strokeWidth={0.4} strokeDasharray="2 1.6" data-audit-template-line-id="level-ground-same-height-reference" />
+          <line x1={o.x} y1={43.0} x2={o.x} y2={groundY} stroke={C.surface} strokeWidth={0.4} />
+          <line x1={b.x} y1={43.0} x2={b.x} y2={groundY} stroke={C.surface} strokeWidth={0.4} />
+        </>
+      )}
+      {(variant === "apex" || variant === "summary") && (
+        <>
+          <TemplatePoint x={a.x} y={a.y} />
+          <TextbookSvgText x={a.x - 2.2} y={a.y - 5.3} text="A" size={5.8} audit={false} />
+          <line x1={a.x - 6} y1={a.y + 4.5} x2={a.x - 6} y2={groundY} stroke={C.surface} strokeWidth={0.34} strokeDasharray="2 1.5" data-audit-template-line-id="level-ground-height-guide" />
+          <TemplateDimensionArrow markerId={markerId} from={{ x: a.x - 9.0, y: a.y + 4.5 }} to={{ x: a.x - 9.0, y: groundY - 1.4 }} width={0.42} auditId="level-ground-height" />
+        </>
+      )}
+      {variant === "apex" && <TemplateArrow markerId={markerId} from={{ x: a.x + 2.0, y: a.y }} to={{ x: a.x + 22, y: a.y }} width={0.46} auditId="level-ground-apex-ux" />}
+      {(variant === "range" || variant === "summary") && (
+        <>
+          <TemplateDimensionArrow markerId={markerId} from={{ x: o.x + 1.2, y: 55.5 }} to={{ x: b.x - 1.2, y: 55.5 }} width={0.42} auditId="level-ground-range" />
+          <line x1={o.x} y1={52.2} x2={o.x} y2={58.4} stroke={C.surface} strokeWidth={0.38} data-audit-template-line-id="level-ground-range-left" />
+          <line x1={b.x} y1={52.2} x2={b.x} y2={58.4} stroke={C.surface} strokeWidth={0.38} data-audit-template-line-id="level-ground-range-right" />
+        </>
+      )}
+      {variant === "range" && <TemplateArrow markerId={markerId} from={{ x: 27, y: 39 }} to={{ x: 47, y: 39 }} width={0.46} auditId="level-ground-range-ux" />}
+      <TextbookLabelLayer labels={placedLabels} />
+    </g>
+  );
 }
 
 function LaunchComponentsTemplate({ markerId, thetaText, thetaDeg }: { markerId: string; thetaText: string; thetaDeg: number }) {

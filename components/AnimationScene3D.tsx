@@ -162,6 +162,17 @@ export default function AnimationScene3D({
   ]);
   const storyboardOverlays = storyboardStep?.overlays ?? [];
   const visualAction = storyboardStep?.visual_action ?? "";
+  const currentBeat = String(storyboardStep?.beat_visual_spec?.beat ?? "");
+  const currentFamily = String(storyboardStep?.beat_visual_spec?.family ?? "");
+  const isSetupBeat = currentBeat === "setup" || visualAction === "show_launch_setup";
+  const isLevelGroundLaunchComponentBeat = currentFamily === "level_ground_projectile"
+    && (currentBeat === "initial_components" || visualAction === "zoom_launch_vector");
+  const isLevelGroundPeakTimeBeat = currentFamily === "level_ground_projectile"
+    && (currentBeat === "time_to_peak" || visualAction === "show_peak_time");
+  const isLevelGroundLandingBeat = currentFamily === "level_ground_projectile"
+    && (["landing_condition", "time_of_flight"].includes(currentBeat)
+      || ["show_landing_condition", "show_flight_time_root"].includes(visualAction));
+  const effectiveRevealIds = isLevelGroundPeakTimeBeat || isLevelGroundLandingBeat ? [] : revealIds;
   const motionMode = String(storyboardStep?.motion?.mode ?? "");
   const requested = requestedVisualQuantities(sceneSpec.problem.unknown, sceneSpec.problem.engine_case);
   const showImpactVelocityState = visualAction === "show_impact_velocity_triangle" || visualAction === "show_impact_angle";
@@ -177,11 +188,11 @@ export default function AnimationScene3D({
   const showStaticComponents = storyboardOverlays.includes("show_velocity_components");
   const showTrajectoryLines = isFullLifecycle || shouldAnimateMotion || (
     storyboardOverlays.includes("show_trajectory")
-    && !["show_full_scene", "show_launch_setup", "show_incline_axes", "compare_incline_motion", "zoom_launch_vector"].includes(visualAction)
+    && !["show_full_scene", "show_launch_setup", "show_peak_time", "show_incline_axes", "compare_incline_motion", "zoom_launch_vector"].includes(visualAction)
   );
   const staticProgress = motionMode === "freeze"
     ? 1
-    : ((showStaticComponents && !showImpactVelocityState) || ["show_full_scene", "show_launch_setup", "show_incline_axes", "compare_incline_motion", "zoom_launch_vector"].includes(visualAction) ? 0 : 1);
+    : ((showStaticComponents && !showImpactVelocityState) || ["show_full_scene", "show_launch_setup", "show_peak_time", "show_incline_axes", "compare_incline_motion", "zoom_launch_vector"].includes(visualAction) ? 0 : 1);
   const sceneProgress = shouldAnimateMotion ? progress : staticProgress;
   const globalTime = sceneProgress * model.totalDuration;
   const fullSceneCamera = activeCameraBookmark(model, "full_scene");
@@ -189,7 +200,7 @@ export default function AnimationScene3D({
     ? manualCameraBookmark(model, manualFocus.target, manualFocus.label)
     : fullSceneCamera;
   const liveMotion = liveMotionAt(model, sceneProgress);
-  const liveValues = liveVariableRows(model, sceneProgress);
+  const liveValues = liveVariableRows(model, sceneProgress, storyboardStep);
   const isAnswerStep = stepId.includes("answer")
     || stepId.includes("takeaway")
     || visualAction === "highlight_final_answer";
@@ -236,19 +247,32 @@ export default function AnimationScene3D({
   );
   const activeTarget = Boolean(model.target);
   const activeWall = Boolean(model.wall);
-  const showLaunchAngle = Number.isFinite(model.theta) && Math.abs(model.theta) > 0.01;
+  const showLaunchAngle = Number.isFinite(model.theta)
+    && Math.abs(model.theta) > 0.01
+    && !isLevelGroundLaunchComponentBeat
+    && !isLevelGroundPeakTimeBeat
+    && !isLevelGroundLandingBeat;
   const activeEmphasisColor = emphasisColor(vectorHighlightIds);
   const showPerpendicularMarker = storyboardOverlays.includes("show_perpendicular_marker")
     || highlightIds.some(id => id.toLowerCase().includes("normal_axis") || id.toLowerCase().includes("perpendicular"));
   const isComponentStep = storyboardOverlays.includes("show_velocity_components");
-  const showLivePanel = isFullLifecycle || isComponentStep || (!isFullLifecycle && (shouldAnimateMotion || stepId.toLowerCase().includes("velocity"))) || requested.velocity;
+  const showLivePanel = liveValues.length > 0 && !isLevelGroundLaunchComponentBeat && !isLevelGroundPeakTimeBeat && !isLevelGroundLandingBeat && (
+    isFullLifecycle
+    || isComponentStep
+    || (!isSetupBeat && !isFullLifecycle && (shouldAnimateMotion || stepId.toLowerCase().includes("velocity")))
+    || (!isSetupBeat && requested.velocity && (showImpactVelocityState || showImpactVerticalVelocity || showImpactAngle))
+  );
   const showAxisLabels = isFullLifecycle || visualAction === "show_incline_axes" || storyboardOverlays.includes("show_axes");
   const suppressEndpointMarkersForImpactVectors = showImpactVerticalVelocity || showImpactVelocityState || showImpactAngle;
   const suppressLaunchPointForHeightStep = sceneSpec.problem.world === "height_launch" && !isFullLifecycle;
-  const showLaunchPointMarker = !suppressEndpointMarkersForImpactVectors && !suppressLaunchPointForHeightStep;
+  const showLaunchPointMarker = !suppressEndpointMarkersForImpactVectors
+    && !suppressLaunchPointForHeightStep
+    && !isLevelGroundLaunchComponentBeat
+    && !isLevelGroundPeakTimeBeat;
   const showLandingPointMarker = model.showLandingMarker && !suppressEndpointMarkersForImpactVectors && (
     isFullLifecycle
     || showRange
+    || showSameHeight
     || shouldAnimateMotion
   );
   const impactAngleInfo = showImpactAngle ? impactAngleGeometry(model) : null;
@@ -265,7 +289,7 @@ export default function AnimationScene3D({
       data-audit-full-lifecycle={isFullLifecycle ? "true" : "false"}
       data-audit-show-trajectory={showTrajectoryLines ? "true" : "false"}
       data-audit-visual-action={visualAction}
-      data-audit-visible-vector-ids={visibleLiveVectors(model, vectorStoryboardStep, sceneProgress, revealIds).map(vector => vector.id).join(",")}
+      data-audit-visible-vector-ids={visibleLiveVectors(model, vectorStoryboardStep, sceneProgress, effectiveRevealIds).map(vector => vector.id).join(",")}
       style={{ width: "100%", height: "100%", minHeight: 0, position: "relative", overflow: "hidden", background: COLORS.bg, cursor: cameraTool === "pan" ? "grab" : "default" }}
     >
       <div style={animationCanvasSafeAreaStyle}>
@@ -275,7 +299,7 @@ export default function AnimationScene3D({
           gl={{ antialias: true }}
           style={{ width: "100%", height: "100%", display: "block" }}
         >
-          <CameraRig bookmark={activeCamera} controlsRef={controlsRef} />
+          <CameraRig bookmark={activeCamera} controlsRef={controlsRef} resetKey={stepId} />
           <color attach="background" args={[COLORS.bg]} />
           <ambientLight intensity={0.58} />
           <directionalLight position={[8, 12, 8]} intensity={1.15} castShadow />
@@ -383,7 +407,7 @@ export default function AnimationScene3D({
           );
         })}
 
-        {vectorMode !== "none" && visibleLiveVectors(model, vectorStoryboardStep, sceneProgress, revealIds).map(vector => (
+        {vectorMode !== "none" && visibleLiveVectors(model, vectorStoryboardStep, sceneProgress, effectiveRevealIds).map(vector => (
           <DynamicVectorLine
             key={vector.id}
             vector={vector}
@@ -617,7 +641,7 @@ function Axes({ length, showLabels = true }: { length: number; showLabels?: bool
   );
 }
 
-function CameraRig({ bookmark, controlsRef }: { bookmark: CameraBookmark; controlsRef: MutableRefObject<any> }) {
+function CameraRig({ bookmark, controlsRef, resetKey }: { bookmark: CameraBookmark; controlsRef: MutableRefObject<any>; resetKey: string }) {
   const { camera, invalidate } = useThree();
   useEffect(() => {
     camera.position.set(bookmark.position[0], bookmark.position[1], bookmark.position[2]);
@@ -631,7 +655,7 @@ function CameraRig({ bookmark, controlsRef }: { bookmark: CameraBookmark; contro
       controls.update();
     }
     invalidate();
-  }, [bookmark.id, bookmark.position, bookmark.target, bookmark.fov, camera, controlsRef, invalidate]);
+  }, [bookmark.id, bookmark.position, bookmark.target, bookmark.fov, resetKey, camera, controlsRef, invalidate]);
   return null;
 }
 
@@ -1604,6 +1628,7 @@ function sceneIdToVectorPatterns(id: string) {
   if (!normalized) return [];
   if (normalized.startsWith("emphasis:")) return [];
   if (normalized.startsWith("*:")) return [normalized];
+  if (normalized === "velocity:launch" || normalized === "velocity:initial" || normalized === "launch_velocity_arrow") return ["*:v"];
   if (normalized === "velocity:x_component" || normalized === "velocity:horizontal_component") return ["*:vx"];
   if (normalized === "velocity:y_component" || normalized === "velocity:vertical_component") return ["*:vy"];
   if (normalized === "velocity:impact_x_component") return ["*:vx"];
@@ -1773,9 +1798,10 @@ function vectorColor(vector: SceneLiveVector) {
   return COLORS.velocity;
 }
 
-function liveVariableRows(model: ReturnType<typeof buildSceneModel>, progress: number) {
+function liveVariableRows(model: ReturnType<typeof buildSceneModel>, progress: number, storyboardStep: StoryboardStep | null = null) {
   const motion = liveMotionAt(model, progress);
   const speed = Math.hypot(motion.vx, motion.vy);
+  const allowedKeys = liveValueKeysForStep(storyboardStep);
   const rows = [
     finiteQuantityRow(model, "u", "u", "m/s"),
     finiteQuantityRow(model, "v0", "u", "m/s"),
@@ -1791,13 +1817,41 @@ function liveVariableRows(model: ReturnType<typeof buildSceneModel>, progress: n
     finiteQuantityRow(model, "R", "R", "m"),
     finiteQuantityRow(model, "H", "H", "m"),
     finiteQuantityRow(model, "T", "T", "s"),
-  ].filter((row): row is { key: string; label: string; value: string; dynamic: boolean } => row !== null && !row.value.includes("NaN"));
+  ].filter((row): row is { key: string; label: string; value: string; dynamic: boolean } => {
+    if (row === null || row.value.includes("NaN")) return false;
+    return !allowedKeys || allowedKeys.has(row.key);
+  });
   const seen = new Set<string>();
   return rows.filter(row => {
     if (seen.has(row.label)) return false;
     seen.add(row.label);
     return true;
   });
+}
+
+function liveValueKeysForStep(storyboardStep: StoryboardStep | null) {
+  if (!storyboardStep) return null;
+  const beat = String(storyboardStep.beat_visual_spec?.beat ?? "");
+  const action = String(storyboardStep.visual_action ?? "");
+  if (beat === "setup" || action === "show_launch_setup") {
+    return new Set(["u", "v0", "theta", "angle", "g"]);
+  }
+  if (beat === "initial_components" || action === "zoom_launch_vector") {
+    return new Set(["u", "v0", "theta", "angle", "g", "vx", "vy"]);
+  }
+  if (beat === "time_of_flight") {
+    return new Set(["u", "v0", "theta", "angle", "g", "t", "y", "vy", "T"]);
+  }
+  if (beat === "maximum_height") {
+    return new Set(["u", "v0", "theta", "angle", "g", "vy", "H"]);
+  }
+  if (beat === "horizontal_range") {
+    return new Set(["u", "v0", "theta", "angle", "g", "vx", "R", "T"]);
+  }
+  if (beat === "final_answer" || action === "highlight_final_answer") {
+    return null;
+  }
+  return null;
 }
 
 function finiteQuantityRow(model: ReturnType<typeof buildSceneModel>, key: string, label: string, unit: string) {
