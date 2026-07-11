@@ -103,7 +103,7 @@ type AuditPayload = {
   };
 };
 
-const API = (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
+const API = "/api/backend";
 
 export default function WalkthroughSyncAuditPage() {
   const [question, setQuestion] = useState("A ball is thrown at u=16 m/s at 53 deg. Find range and time of flight.");

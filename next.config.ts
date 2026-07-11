@@ -1,6 +1,20 @@
 import type { NextConfig } from "next";
 
+const backendApiUrl = (
+  process.env.BACKEND_API_URL
+  ?? process.env.NEXT_PUBLIC_API_URL
+  ?? "https://physica-api-production.up.railway.app"
+).replace(/\/+$/, "");
+
 const nextConfig: NextConfig = {
+  async rewrites() {
+    return [
+      {
+        source: "/api/backend/:path*",
+        destination: `${backendApiUrl}/:path*`,
+      },
+    ];
+  },
   async headers() {
     return [
       {
