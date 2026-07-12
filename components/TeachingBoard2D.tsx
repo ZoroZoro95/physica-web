@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import { contractForbids, contractForStep, contractLabelsForTarget, type BeatVisualSpec } from "@/types/visualContract";
 import {
   boxesOverlap,
@@ -1361,9 +1361,9 @@ function LevelGroundTemplate({
   }
   if (variant === "summary") {
     labels.push(
-      { key: "level-ground:summary-time", x: 16.0, y: 13.0, text: timeText, size: 4.0, priority: 92 },
-      { key: "level-ground:summary-height", x: 50.0, y: 32.5, text: heightText, size: 4.0, priority: 91 },
-      { key: "level-ground:summary-range", x: 50.0, y: 60.0, text: rangeText, size: 4.2, anchor: "middle", priority: 90 },
+      { key: "level-ground:summary-time", x: 16.0, y: 13.0, text: timeText, size: 4.0, priority: 92, locked: true },
+      { key: "level-ground:summary-height", x: 37.0, y: 35.0, text: heightText, size: 4.0, anchor: "end", priority: 91, locked: true },
+      { key: "level-ground:summary-range", x: 50.0, y: 60.0, text: rangeText, size: 4.2, anchor: "middle", priority: 90, locked: true },
     );
   }
   const placedLabels = labelAuthority.place(labels);
@@ -3286,9 +3286,94 @@ function TextbookSvgText({
 }
 
 function TextbookLabelLayer({ labels }: { labels: PlacedLabel[] }) {
+  const layerRef = useRef<SVGGElement | null>(null);
+  const sourceSignature = labels
+    .map(label => [label.key, label.text, label.x, label.y, label.size, label.anchor, label.priority].join("|"))
+    .join(";");
+  const [measuredLayout, setMeasuredLayout] = useState<{
+    signature: string;
+    labels: PlacedLabel[];
+    unresolved: number;
+  }>({ signature: "", labels, unresolved: 0 });
+  const renderedLabels = measuredLayout.signature === sourceSignature ? measuredLayout.labels : labels;
+
+  useLayoutEffect(() => {
+    const layer = layerRef.current;
+    const svg = layer?.ownerSVGElement;
+    if (!layer || !svg) return;
+    const viewBox = svg.viewBox.baseVal;
+    const bounds = {
+      left: viewBox.x + 1.5,
+      right: viewBox.x + viewBox.width - 1.5,
+      top: viewBox.y + 1.5,
+      bottom: viewBox.y + viewBox.height - 1.5,
+    };
+    const measured = labels.map(label => {
+      const node = layer.querySelector<SVGTextElement>(`[data-audit-label-key="${CSS.escape(label.key)}"]`);
+      const box = node?.getBBox();
+      return {
+        label,
+        width: Math.max(box?.width ?? labelWidth(label.text, label.size), label.size * 1.6),
+        height: Math.max(box?.height ?? label.size * 1.15, label.size),
+      };
+    });
+    const resolved = labels.map(label => ({ ...label }));
+    const occupied: Array<{ left: number; right: number; top: number; bottom: number }> = [];
+    const order = measured
+      .map((item, index) => ({ ...item, index }))
+      .sort((a, b) => (b.label.priority ?? 50) - (a.label.priority ?? 50) || a.index - b.index);
+    const gap = 1.1;
+    const offsets = measuredLabelOffsets();
+    for (const item of order) {
+      const anchor = item.label.anchor ?? "start";
+      let best: { x: number; y: number; box: { left: number; right: number; top: number; bottom: number }; score: number } | null = null;
+      for (const [dx, dy] of offsets) {
+        let x = item.label.x + dx;
+        let y = item.label.y + dy;
+        let box = measuredTextBox(x, y, item.width, item.height, anchor);
+        if (box.left < bounds.left) x += bounds.left - box.left;
+        if (box.right > bounds.right) x -= box.right - bounds.right;
+        if (box.top < bounds.top) y += bounds.top - box.top;
+        if (box.bottom > bounds.bottom) y -= box.bottom - bounds.bottom;
+        box = measuredTextBox(x, y, item.width, item.height, anchor);
+        const score = occupied.reduce((sum, other) => sum + measuredOverlapArea(box, other, gap), 0);
+        if (score === 0) {
+          best = { x, y, box, score };
+          break;
+        }
+        if (!best || score < best.score) best = { x, y, box, score };
+      }
+      if (!best) continue;
+      resolved[item.index] = {
+        ...item.label,
+        x: best.x,
+        y: best.y,
+        moved: Math.abs(best.x - item.label.x) > 0.01 || Math.abs(best.y - item.label.y) > 0.01,
+        box: {
+          left: best.box.left,
+          right: best.box.right,
+          top: best.box.bottom,
+          bottom: best.box.top,
+        },
+      };
+      occupied.push(best.box);
+    }
+    let unresolved = 0;
+    for (let i = 0; i < occupied.length; i += 1) {
+      for (let j = i + 1; j < occupied.length; j += 1) {
+        if (measuredOverlapArea(occupied[i], occupied[j], 0.25) > 0) unresolved += 1;
+      }
+    }
+    setMeasuredLayout({ signature: sourceSignature, labels: resolved, unresolved });
+  }, [sourceSignature]);
+
   return (
-    <g data-audit-label-layer="template-authority">
-      {labels.map(label => (
+    <g
+      ref={layerRef}
+      data-audit-label-layer="template-authority"
+      data-audit-unresolved-overlaps={measuredLayout.signature === sourceSignature ? measuredLayout.unresolved : 0}
+    >
+      {renderedLabels.map(label => (
         <TextbookSvgText
           key={label.key}
           x={label.x}
@@ -3301,6 +3386,32 @@ function TextbookLabelLayer({ labels }: { labels: PlacedLabel[] }) {
       ))}
     </g>
   );
+}
+
+function measuredLabelOffsets(): Array<[number, number]> {
+  const offsets: Array<[number, number]> = [[0, 0]];
+  for (const radius of [3, 5.5, 8, 11, 14, 18, 23]) {
+    offsets.push(
+      [radius, 0], [-radius, 0], [0, radius], [0, -radius],
+      [radius, radius], [-radius, radius], [radius, -radius], [-radius, -radius],
+    );
+  }
+  return offsets;
+}
+
+function measuredTextBox(x: number, y: number, width: number, height: number, anchor: LabelAnchor) {
+  const left = anchor === "middle" ? x - width / 2 : anchor === "end" ? x - width : x;
+  return { left, right: left + width, top: y - height, bottom: y };
+}
+
+function measuredOverlapArea(
+  a: { left: number; right: number; top: number; bottom: number },
+  b: { left: number; right: number; top: number; bottom: number },
+  gap: number,
+) {
+  const width = Math.max(0, Math.min(a.right + gap, b.right + gap) - Math.max(a.left - gap, b.left - gap));
+  const height = Math.max(0, Math.min(a.bottom + gap, b.bottom + gap) - Math.max(a.top - gap, b.top - gap));
+  return width * height;
 }
 
 function Surface2D({
