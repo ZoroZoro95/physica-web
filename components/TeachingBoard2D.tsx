@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import { contractForbids, contractForStep, contractLabelsForTarget, type BeatVisualSpec } from "@/types/visualContract";
 import {
   boxesOverlap,
@@ -638,6 +638,7 @@ function TextbookProjectileTemplate({
         {template === "level-ground-time-to-peak" && <LevelGroundTemplate markerId={markerId} variant="peak-time" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
         {template === "level-ground-landing-condition" && <LevelGroundTemplate markerId={markerId} variant="landing-condition" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
         {template === "level-ground-time-flight" && <LevelGroundTemplate markerId={markerId} variant="time" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
+        {template === "level-ground-time-substitution" && <LevelGroundTemplate markerId={markerId} variant="time-substitution" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
         {template === "level-ground-apex" && <LevelGroundTemplate markerId={markerId} variant="apex" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
         {template === "level-ground-range" && <LevelGroundTemplate markerId={markerId} variant="range" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
         {template === "level-ground-summary" && <LevelGroundTemplate markerId={markerId} variant="summary" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
@@ -756,6 +757,7 @@ type TextbookBeatTemplate =
   | "level-ground-time-to-peak"
   | "level-ground-landing-condition"
   | "level-ground-time-flight"
+  | "level-ground-time-substitution"
   | "level-ground-apex"
   | "level-ground-range"
   | "level-ground-summary"
@@ -1233,7 +1235,7 @@ function descendingInclineFrame(alphaDeg: number) {
   return inclineSegment(-Math.abs(alphaDeg), start, length);
 }
 
-type LevelGroundTemplateVariant = "setup" | "components" | "peak-time" | "landing-condition" | "time" | "apex" | "range" | "summary";
+type LevelGroundTemplateVariant = "setup" | "components" | "peak-time" | "landing-condition" | "time" | "time-substitution" | "apex" | "range" | "summary";
 
 function LevelGroundTemplate({
   markerId,
@@ -1263,7 +1265,7 @@ function LevelGroundTemplate({
   const uxTip = { x: launchTip.x, y: o.y };
   const uyTip = launchTip;
   const groundY = 47;
-  const drawsWholePath = variant !== "setup" && variant !== "components" && variant !== "peak-time";
+  const drawsWholePath = variant !== "setup" && variant !== "components" && variant !== "peak-time" && variant !== "time-substitution";
   const cleanSpeedText = speedText.replace(/\s*m\/s$/, " m/s").replace(/\s+/g, " ").trim();
   const launchSpeedLabel = cleanSpeedText === "u" ? "u" : `u = ${cleanSpeedText}`;
   const labelAuthority = createLabelPlacementAuthority<Point2>({
@@ -1287,6 +1289,11 @@ function LevelGroundTemplate({
       ...(variant === "components" ? [
         segmentBox(o, uxTip, 1.2),
         segmentBox(uxTip, uyTip, 1.2),
+      ] : []),
+      ...(variant === "time-substitution" ? [
+        segmentBox(o, launchTip, 1.2),
+        segmentBox(uxTip, uyTip, 1.2),
+        pointBox(o, 4.0),
       ] : []),
       ...(variant === "apex" || variant === "summary" ? [segmentBox({ x: a.x - 6, y: a.y + 4.5 }, { x: a.x - 6, y: groundY }, 1.0)] : []),
       ...(variant === "range" || variant === "summary" ? [segmentBox({ x: o.x, y: 55.5 }, { x: b.x, y: 55.5 }, 1.0)] : []),
@@ -1320,6 +1327,15 @@ function LevelGroundTemplate({
       { key: "level-ground:landing-equation", x: 50.0, y: 58.0, text: "0 = uᵧT − 1/2 gT²", size: 4.4, anchor: "middle", priority: 91, locked: true },
     );
   }
+  if (variant === "time-substitution") {
+    labels.push(
+      { key: "level-ground:sub-u", x: launchTip.x + 2.5, y: launchTip.y - 1.8, text: "u", size: 4.8, priority: 88 },
+      { key: "level-ground:sub-uy", x: uxTip.x + 4.2, y: (uxTip.y + uyTip.y) / 2, text: "uᵧ", size: 4.3, priority: 87 },
+      { key: "level-ground:sub-theta", x: o.x + 13.2, y: o.y - 3.2, text: thetaText, size: 3.5, priority: 82 },
+      { key: "level-ground:sub-relation", x: 66.0, y: 39.5, text: "uᵧ = u sin θ", size: 4.0, anchor: "middle", priority: 95, locked: true },
+      { key: "level-ground:sub-time", x: 50.0, y: 56.5, text: "T = 2uᵧ/g  →  T = 2u sin θ/g", size: 4.0, anchor: "middle", priority: 94, locked: true },
+    );
+  }
   if (variant === "peak-time") {
     labels.push(
       { key: "level-ground:peak-vy-equation", x: 12.0, y: 13.2, text: "vᵧ(t) = uᵧ − gt", size: 3.8, priority: 95, locked: true },
@@ -1345,9 +1361,9 @@ function LevelGroundTemplate({
   }
   if (variant === "summary") {
     labels.push(
-      { key: "level-ground:summary-time", x: 16.0, y: 13.0, text: timeText, size: 4.0, priority: 92 },
-      { key: "level-ground:summary-height", x: 50.0, y: 32.5, text: heightText, size: 4.0, priority: 91 },
-      { key: "level-ground:summary-range", x: 50.0, y: 60.0, text: rangeText, size: 4.2, anchor: "middle", priority: 90 },
+      { key: "level-ground:summary-time", x: 16.0, y: 13.0, text: timeText, size: 4.0, priority: 92, locked: true },
+      { key: "level-ground:summary-height", x: 37.0, y: 35.0, text: heightText, size: 4.0, anchor: "end", priority: 91, locked: true },
+      { key: "level-ground:summary-range", x: 50.0, y: 60.0, text: rangeText, size: 4.2, anchor: "middle", priority: 90, locked: true },
     );
   }
   const placedLabels = labelAuthority.place(labels);
@@ -1357,9 +1373,15 @@ function LevelGroundTemplate({
       {drawsWholePath && (
         <path data-audit-template-line-id="level-ground-trajectory" d={`M ${o.x} ${o.y} C 31 18, 60 16, ${b.x} ${b.y}`} fill="none" stroke={C.surface} strokeWidth={0.64} />
       )}
-      <TemplatePoint x={o.x} y={o.y} label="O" />
-      {drawsWholePath && <TemplatePoint x={b.x} y={b.y} label="B" />}
-      {(variant === "setup" || variant === "components") && (
+      <TemplatePoint x={o.x} y={o.y} label={variant === "time" ? undefined : "O"} />
+      {drawsWholePath && <TemplatePoint x={b.x} y={b.y} label={variant === "time" ? undefined : "B"} />}
+      {variant === "time" && (
+        <>
+          <TextbookSvgText x={o.x - 5.0} y={o.y + 1.7} text="O" size={4.8} anchor="end" audit={false} />
+          <TextbookSvgText x={b.x + 5.0} y={b.y + 1.7} text="B" size={4.8} anchor="start" audit={false} />
+        </>
+      )}
+      {(variant === "setup" || variant === "components" || variant === "time-substitution") && (
         <>
           <line x1={o.x} y1={o.y} x2={o.x + 34} y2={o.y} stroke={C.surface} strokeWidth={0.36} strokeDasharray="2 1.5" data-audit-template-line-id="level-ground-horizontal-reference" />
           <TemplateArrow markerId={markerId} from={o} to={launchTip} width={0.58} auditId="level-ground-u" />
@@ -1371,6 +1393,12 @@ function LevelGroundTemplate({
           <TemplateArrow markerId={markerId} from={o} to={uxTip} width={0.5} auditId="level-ground-ux" />
           <TemplateArrow markerId={markerId} from={uxTip} to={uyTip} width={0.5} auditId="level-ground-uy" />
           <path d={`M ${uxTip.x - 3.2} ${uxTip.y} L ${uxTip.x - 3.2} ${uxTip.y - 3.2} L ${uxTip.x} ${uxTip.y - 3.2}`} fill="none" stroke={C.surface} strokeWidth={0.38} data-audit-template-line-id="level-ground-component-right-angle" />
+        </>
+      )}
+      {variant === "time-substitution" && (
+        <>
+          <line x1={o.x} y1={o.y} x2={uxTip.x} y2={uxTip.y} stroke={C.surface} strokeWidth={0.36} strokeDasharray="2 1.5" data-audit-template-line-id="level-ground-substitution-horizontal-guide" />
+          <TemplateArrow markerId={markerId} from={uxTip} to={uyTip} width={0.5} auditId="level-ground-substitution-uy" />
         </>
       )}
       {variant === "peak-time" && (
@@ -3258,9 +3286,94 @@ function TextbookSvgText({
 }
 
 function TextbookLabelLayer({ labels }: { labels: PlacedLabel[] }) {
+  const layerRef = useRef<SVGGElement | null>(null);
+  const sourceSignature = labels
+    .map(label => [label.key, label.text, label.x, label.y, label.size, label.anchor, label.priority].join("|"))
+    .join(";");
+  const [measuredLayout, setMeasuredLayout] = useState<{
+    signature: string;
+    labels: PlacedLabel[];
+    unresolved: number;
+  }>({ signature: "", labels, unresolved: 0 });
+  const renderedLabels = measuredLayout.signature === sourceSignature ? measuredLayout.labels : labels;
+
+  useLayoutEffect(() => {
+    const layer = layerRef.current;
+    const svg = layer?.ownerSVGElement;
+    if (!layer || !svg) return;
+    const viewBox = svg.viewBox.baseVal;
+    const bounds = {
+      left: viewBox.x + 1.5,
+      right: viewBox.x + viewBox.width - 1.5,
+      top: viewBox.y + 1.5,
+      bottom: viewBox.y + viewBox.height - 1.5,
+    };
+    const measured = labels.map(label => {
+      const node = layer.querySelector<SVGTextElement>(`[data-audit-label-key="${CSS.escape(label.key)}"]`);
+      const box = node?.getBBox();
+      return {
+        label,
+        width: Math.max(box?.width ?? labelWidth(label.text, label.size), label.size * 1.6),
+        height: Math.max(box?.height ?? label.size * 1.15, label.size),
+      };
+    });
+    const resolved = labels.map(label => ({ ...label }));
+    const occupied: Array<{ left: number; right: number; top: number; bottom: number }> = [];
+    const order = measured
+      .map((item, index) => ({ ...item, index }))
+      .sort((a, b) => (b.label.priority ?? 50) - (a.label.priority ?? 50) || a.index - b.index);
+    const gap = 1.1;
+    const offsets = measuredLabelOffsets();
+    for (const item of order) {
+      const anchor = item.label.anchor ?? "start";
+      let best: { x: number; y: number; box: { left: number; right: number; top: number; bottom: number }; score: number } | null = null;
+      for (const [dx, dy] of offsets) {
+        let x = item.label.x + dx;
+        let y = item.label.y + dy;
+        let box = measuredTextBox(x, y, item.width, item.height, anchor);
+        if (box.left < bounds.left) x += bounds.left - box.left;
+        if (box.right > bounds.right) x -= box.right - bounds.right;
+        if (box.top < bounds.top) y += bounds.top - box.top;
+        if (box.bottom > bounds.bottom) y -= box.bottom - bounds.bottom;
+        box = measuredTextBox(x, y, item.width, item.height, anchor);
+        const score = occupied.reduce((sum, other) => sum + measuredOverlapArea(box, other, gap), 0);
+        if (score === 0) {
+          best = { x, y, box, score };
+          break;
+        }
+        if (!best || score < best.score) best = { x, y, box, score };
+      }
+      if (!best) continue;
+      resolved[item.index] = {
+        ...item.label,
+        x: best.x,
+        y: best.y,
+        moved: Math.abs(best.x - item.label.x) > 0.01 || Math.abs(best.y - item.label.y) > 0.01,
+        box: {
+          left: best.box.left,
+          right: best.box.right,
+          top: best.box.bottom,
+          bottom: best.box.top,
+        },
+      };
+      occupied.push(best.box);
+    }
+    let unresolved = 0;
+    for (let i = 0; i < occupied.length; i += 1) {
+      for (let j = i + 1; j < occupied.length; j += 1) {
+        if (measuredOverlapArea(occupied[i], occupied[j], 0.25) > 0) unresolved += 1;
+      }
+    }
+    setMeasuredLayout({ signature: sourceSignature, labels: resolved, unresolved });
+  }, [sourceSignature]);
+
   return (
-    <g data-audit-label-layer="template-authority">
-      {labels.map(label => (
+    <g
+      ref={layerRef}
+      data-audit-label-layer="template-authority"
+      data-audit-unresolved-overlaps={measuredLayout.signature === sourceSignature ? measuredLayout.unresolved : 0}
+    >
+      {renderedLabels.map(label => (
         <TextbookSvgText
           key={label.key}
           x={label.x}
@@ -3273,6 +3386,32 @@ function TextbookLabelLayer({ labels }: { labels: PlacedLabel[] }) {
       ))}
     </g>
   );
+}
+
+function measuredLabelOffsets(): Array<[number, number]> {
+  const offsets: Array<[number, number]> = [[0, 0]];
+  for (const radius of [3, 5.5, 8, 11, 14, 18, 23]) {
+    offsets.push(
+      [radius, 0], [-radius, 0], [0, radius], [0, -radius],
+      [radius, radius], [-radius, radius], [radius, -radius], [-radius, -radius],
+    );
+  }
+  return offsets;
+}
+
+function measuredTextBox(x: number, y: number, width: number, height: number, anchor: LabelAnchor) {
+  const left = anchor === "middle" ? x - width / 2 : anchor === "end" ? x - width : x;
+  return { left, right: left + width, top: y - height, bottom: y };
+}
+
+function measuredOverlapArea(
+  a: { left: number; right: number; top: number; bottom: number },
+  b: { left: number; right: number; top: number; bottom: number },
+  gap: number,
+) {
+  const width = Math.max(0, Math.min(a.right + gap, b.right + gap) - Math.max(a.left - gap, b.left - gap));
+  const height = Math.max(0, Math.min(a.bottom + gap, b.bottom + gap) - Math.max(a.top - gap, b.top - gap));
+  return width * height;
 }
 
 function Surface2D({

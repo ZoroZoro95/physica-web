@@ -358,6 +358,8 @@ function formatMathDisplay(text: string) {
     .replace(/\bsin\^2\s*\(\s*theta\s*\)/gi, "sin²(θ)")
     .replace(/\bcos\^2\s*\(\s*theta\s*\)/gi, "cos²(θ)")
     .replace(/\btan\^2\s*\(\s*theta\s*\)/gi, "tan²(θ)")
+    .replace(/\^\{?2\}?/g, "²")
+    .replace(/\^\{?3\}?/g, "³")
     .replace(/\bu0\b/g, "u₀")
     .replace(/\bv0\b/g, "v₀")
     .replace(/\bux\b/g, "uₓ")
@@ -443,6 +445,7 @@ function toKatexExpression(value: string) {
     .replace(/([0-9)}])\s+x\s+(?=[0-9A-Za-z\\(])/gi, "$1\\times ")
     .replace(/\*/g, "\\times ")
     .replace(/([A-Za-z])_([A-Za-z0-9]+)/g, "$1_{$2}")
+    .replace(/\^([+-]?\d+)/g, "^{$1}")
     .replace(/(\d(?:[\d.]*))\s*(m\/s\^2|m\/s|m|s)\b/g, "$1\\,\\mathrm{$2}");
 }
 
