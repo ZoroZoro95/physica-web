@@ -172,7 +172,11 @@ export default function AnimationScene3D({
   const isLevelGroundLandingBeat = currentFamily === "level_ground_projectile"
     && (["landing_condition", "time_of_flight"].includes(currentBeat)
       || ["show_landing_condition", "show_flight_time_root"].includes(visualAction));
-  const effectiveRevealIds = isLevelGroundPeakTimeBeat || isLevelGroundLandingBeat ? [] : revealIds;
+  const isLevelGroundFlightTimeRootBeat = currentFamily === "level_ground_projectile"
+    && (currentBeat === "time_of_flight" || visualAction === "show_flight_time_root");
+  const isLevelGroundTimeSubstitutionBeat = currentFamily === "level_ground_projectile"
+    && (currentBeat === "component_substitution" || visualAction === "show_time_component_substitution");
+  const effectiveRevealIds = isLevelGroundPeakTimeBeat || isLevelGroundLandingBeat || isLevelGroundTimeSubstitutionBeat ? [] : revealIds;
   const motionMode = String(storyboardStep?.motion?.mode ?? "");
   const requested = requestedVisualQuantities(sceneSpec.problem.unknown, sceneSpec.problem.engine_case);
   const showImpactVelocityState = visualAction === "show_impact_velocity_triangle" || visualAction === "show_impact_angle";
@@ -193,7 +197,11 @@ export default function AnimationScene3D({
   const staticProgress = motionMode === "freeze"
     ? 1
     : ((showStaticComponents && !showImpactVelocityState) || ["show_full_scene", "show_launch_setup", "show_peak_time", "show_incline_axes", "compare_incline_motion", "zoom_launch_vector"].includes(visualAction) ? 0 : 1);
-  const sceneProgress = shouldAnimateMotion ? progress : staticProgress;
+  const motionEvent = String(storyboardStep?.motion?.event ?? "");
+  const motionEndProgress = motionMode === "partial" && motionEvent === "apex"
+    ? trajectoryApexProgress(model)
+    : 1;
+  const sceneProgress = shouldAnimateMotion ? progress * motionEndProgress : staticProgress;
   const globalTime = sceneProgress * model.totalDuration;
   const fullSceneCamera = activeCameraBookmark(model, "full_scene");
   const activeCamera = manualFocus
@@ -256,7 +264,7 @@ export default function AnimationScene3D({
   const showPerpendicularMarker = storyboardOverlays.includes("show_perpendicular_marker")
     || highlightIds.some(id => id.toLowerCase().includes("normal_axis") || id.toLowerCase().includes("perpendicular"));
   const isComponentStep = storyboardOverlays.includes("show_velocity_components");
-  const showLivePanel = liveValues.length > 0 && !isLevelGroundLaunchComponentBeat && !isLevelGroundPeakTimeBeat && !isLevelGroundLandingBeat && (
+  const showLivePanel = liveValues.length > 0 && !isLevelGroundLaunchComponentBeat && !isLevelGroundPeakTimeBeat && !isLevelGroundLandingBeat && !isLevelGroundTimeSubstitutionBeat && (
     isFullLifecycle
     || isComponentStep
     || (!isSetupBeat && !isFullLifecycle && (shouldAnimateMotion || stepId.toLowerCase().includes("velocity")))
@@ -466,7 +474,15 @@ export default function AnimationScene3D({
             offset={Math.max(0.36, model.vectorScale * 0.68)}
           />
         )}
-        {showTimer && <SceneLabel position={[model.center.x, model.maxY + model.labelLift, 0]} text={`T = ${formatNumber(model.quantities.T)} s`} color="#d7f7ff" />}
+        {showTimer && (
+          <SceneLabel
+            position={isLevelGroundFlightTimeRootBeat
+              ? [model.landing[0] - model.labelLift * 0.7, model.landing[1] + model.labelLift * 1.45, 0]
+              : [model.center.x, model.maxY + model.labelLift, 0]}
+            text={isLevelGroundFlightTimeRootBeat ? "T" : `T = ${formatNumber(model.quantities.T)} s`}
+            color="#d7f7ff"
+          />
+        )}
         {activeWall && <SceneLabel position={[model.wall!.x, model.wall!.height + model.labelLift * 0.42, 0]} text={`wall ${formatNumber(model.wall!.height)} m`} color="#d7f7ff" />}
         {showLaunchAngle && (
           <AngleArc
@@ -1961,6 +1977,16 @@ function samplePoint(path: V3[], progress: number): V3 {
     path[left][1] + (path[right][1] - path[left][1]) * local,
     path[left][2] + (path[right][2] - path[left][2]) * local,
   ];
+}
+
+function trajectoryApexProgress(model: ReturnType<typeof buildSceneModel>) {
+  const points = model.trajectories[0]?.rawPoints ?? [];
+  if (points.length < 2) return 0.5;
+  let apexIndex = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    if (points[index].y > points[apexIndex].y) apexIndex = index;
+  }
+  return apexIndex / (points.length - 1);
 }
 
 function vectorFromComponents(from: V3, vx: number, vy: number, length: number): V3 {

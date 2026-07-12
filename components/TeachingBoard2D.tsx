@@ -638,6 +638,7 @@ function TextbookProjectileTemplate({
         {template === "level-ground-time-to-peak" && <LevelGroundTemplate markerId={markerId} variant="peak-time" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
         {template === "level-ground-landing-condition" && <LevelGroundTemplate markerId={markerId} variant="landing-condition" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
         {template === "level-ground-time-flight" && <LevelGroundTemplate markerId={markerId} variant="time" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
+        {template === "level-ground-time-substitution" && <LevelGroundTemplate markerId={markerId} variant="time-substitution" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
         {template === "level-ground-apex" && <LevelGroundTemplate markerId={markerId} variant="apex" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
         {template === "level-ground-range" && <LevelGroundTemplate markerId={markerId} variant="range" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
         {template === "level-ground-summary" && <LevelGroundTemplate markerId={markerId} variant="summary" thetaText={thetaText} thetaDeg={thetaDeg} rangeText={rangeText} heightText={heightText} timeText={timeText} answerText={finalAnswerText} speedText={speedText} />}
@@ -756,6 +757,7 @@ type TextbookBeatTemplate =
   | "level-ground-time-to-peak"
   | "level-ground-landing-condition"
   | "level-ground-time-flight"
+  | "level-ground-time-substitution"
   | "level-ground-apex"
   | "level-ground-range"
   | "level-ground-summary"
@@ -1233,7 +1235,7 @@ function descendingInclineFrame(alphaDeg: number) {
   return inclineSegment(-Math.abs(alphaDeg), start, length);
 }
 
-type LevelGroundTemplateVariant = "setup" | "components" | "peak-time" | "landing-condition" | "time" | "apex" | "range" | "summary";
+type LevelGroundTemplateVariant = "setup" | "components" | "peak-time" | "landing-condition" | "time" | "time-substitution" | "apex" | "range" | "summary";
 
 function LevelGroundTemplate({
   markerId,
@@ -1263,7 +1265,7 @@ function LevelGroundTemplate({
   const uxTip = { x: launchTip.x, y: o.y };
   const uyTip = launchTip;
   const groundY = 47;
-  const drawsWholePath = variant !== "setup" && variant !== "components" && variant !== "peak-time";
+  const drawsWholePath = variant !== "setup" && variant !== "components" && variant !== "peak-time" && variant !== "time-substitution";
   const cleanSpeedText = speedText.replace(/\s*m\/s$/, " m/s").replace(/\s+/g, " ").trim();
   const launchSpeedLabel = cleanSpeedText === "u" ? "u" : `u = ${cleanSpeedText}`;
   const labelAuthority = createLabelPlacementAuthority<Point2>({
@@ -1287,6 +1289,11 @@ function LevelGroundTemplate({
       ...(variant === "components" ? [
         segmentBox(o, uxTip, 1.2),
         segmentBox(uxTip, uyTip, 1.2),
+      ] : []),
+      ...(variant === "time-substitution" ? [
+        segmentBox(o, launchTip, 1.2),
+        segmentBox(uxTip, uyTip, 1.2),
+        pointBox(o, 4.0),
       ] : []),
       ...(variant === "apex" || variant === "summary" ? [segmentBox({ x: a.x - 6, y: a.y + 4.5 }, { x: a.x - 6, y: groundY }, 1.0)] : []),
       ...(variant === "range" || variant === "summary" ? [segmentBox({ x: o.x, y: 55.5 }, { x: b.x, y: 55.5 }, 1.0)] : []),
@@ -1318,6 +1325,15 @@ function LevelGroundTemplate({
     labels.push(
       { key: "level-ground:dy", x: 50.0, y: 41.0, text: "Δy = 0", size: 4.4, anchor: "middle", priority: 92, locked: true },
       { key: "level-ground:landing-equation", x: 50.0, y: 58.0, text: "0 = uᵧT − 1/2 gT²", size: 4.4, anchor: "middle", priority: 91, locked: true },
+    );
+  }
+  if (variant === "time-substitution") {
+    labels.push(
+      { key: "level-ground:sub-u", x: launchTip.x + 2.5, y: launchTip.y - 1.8, text: "u", size: 4.8, priority: 88 },
+      { key: "level-ground:sub-uy", x: uxTip.x + 4.2, y: (uxTip.y + uyTip.y) / 2, text: "uᵧ", size: 4.3, priority: 87 },
+      { key: "level-ground:sub-theta", x: o.x + 13.2, y: o.y - 3.2, text: thetaText, size: 3.5, priority: 82 },
+      { key: "level-ground:sub-relation", x: 66.0, y: 39.5, text: "uᵧ = u sin θ", size: 4.0, anchor: "middle", priority: 95, locked: true },
+      { key: "level-ground:sub-time", x: 50.0, y: 56.5, text: "T = 2uᵧ/g  →  T = 2u sin θ/g", size: 4.0, anchor: "middle", priority: 94, locked: true },
     );
   }
   if (variant === "peak-time") {
@@ -1357,9 +1373,15 @@ function LevelGroundTemplate({
       {drawsWholePath && (
         <path data-audit-template-line-id="level-ground-trajectory" d={`M ${o.x} ${o.y} C 31 18, 60 16, ${b.x} ${b.y}`} fill="none" stroke={C.surface} strokeWidth={0.64} />
       )}
-      <TemplatePoint x={o.x} y={o.y} label="O" />
-      {drawsWholePath && <TemplatePoint x={b.x} y={b.y} label="B" />}
-      {(variant === "setup" || variant === "components") && (
+      <TemplatePoint x={o.x} y={o.y} label={variant === "time" ? undefined : "O"} />
+      {drawsWholePath && <TemplatePoint x={b.x} y={b.y} label={variant === "time" ? undefined : "B"} />}
+      {variant === "time" && (
+        <>
+          <TextbookSvgText x={o.x - 5.0} y={o.y + 1.7} text="O" size={4.8} anchor="end" audit={false} />
+          <TextbookSvgText x={b.x + 5.0} y={b.y + 1.7} text="B" size={4.8} anchor="start" audit={false} />
+        </>
+      )}
+      {(variant === "setup" || variant === "components" || variant === "time-substitution") && (
         <>
           <line x1={o.x} y1={o.y} x2={o.x + 34} y2={o.y} stroke={C.surface} strokeWidth={0.36} strokeDasharray="2 1.5" data-audit-template-line-id="level-ground-horizontal-reference" />
           <TemplateArrow markerId={markerId} from={o} to={launchTip} width={0.58} auditId="level-ground-u" />
@@ -1371,6 +1393,12 @@ function LevelGroundTemplate({
           <TemplateArrow markerId={markerId} from={o} to={uxTip} width={0.5} auditId="level-ground-ux" />
           <TemplateArrow markerId={markerId} from={uxTip} to={uyTip} width={0.5} auditId="level-ground-uy" />
           <path d={`M ${uxTip.x - 3.2} ${uxTip.y} L ${uxTip.x - 3.2} ${uxTip.y - 3.2} L ${uxTip.x} ${uxTip.y - 3.2}`} fill="none" stroke={C.surface} strokeWidth={0.38} data-audit-template-line-id="level-ground-component-right-angle" />
+        </>
+      )}
+      {variant === "time-substitution" && (
+        <>
+          <line x1={o.x} y1={o.y} x2={uxTip.x} y2={uxTip.y} stroke={C.surface} strokeWidth={0.36} strokeDasharray="2 1.5" data-audit-template-line-id="level-ground-substitution-horizontal-guide" />
+          <TemplateArrow markerId={markerId} from={uxTip} to={uyTip} width={0.5} auditId="level-ground-substitution-uy" />
         </>
       )}
       {variant === "peak-time" && (
