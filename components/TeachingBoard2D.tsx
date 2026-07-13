@@ -1373,14 +1373,15 @@ function LevelGroundTemplate({
       {drawsWholePath && (
         <path data-audit-template-line-id="level-ground-trajectory" d={`M ${o.x} ${o.y} C 31 18, 60 16, ${b.x} ${b.y}`} fill="none" stroke={C.surface} strokeWidth={0.64} />
       )}
-      <TemplatePoint x={o.x} y={o.y} label={variant === "time" ? undefined : "O"} />
-      {drawsWholePath && <TemplatePoint x={b.x} y={b.y} label={variant === "time" ? undefined : "B"} />}
-      {variant === "time" && (
+      <TemplatePoint x={o.x} y={o.y} />
+      {drawsWholePath && <TemplatePoint x={b.x} y={b.y} />}
+      {(variant !== "peak-time") && (
         <>
           <TextbookSvgText x={o.x - 5.0} y={o.y + 1.7} text="O" size={4.8} anchor="end" audit={false} />
-          <TextbookSvgText x={b.x + 5.0} y={b.y + 1.7} text="B" size={4.8} anchor="start" audit={false} />
+          {drawsWholePath && <TextbookSvgText x={b.x + 5.0} y={b.y + 1.7} text="B" size={4.8} anchor="start" audit={false} />}
         </>
       )}
+      {variant === "peak-time" && <TextbookSvgText x={o.x - 5.0} y={o.y + 1.7} text="O" size={4.8} anchor="end" audit={false} />}
       {(variant === "setup" || variant === "components" || variant === "time-substitution") && (
         <>
           <line x1={o.x} y1={o.y} x2={o.x + 34} y2={o.y} stroke={C.surface} strokeWidth={0.36} strokeDasharray="2 1.5" data-audit-template-line-id="level-ground-horizontal-reference" />
@@ -3317,6 +3318,8 @@ function TextbookLabelLayer({ labels }: { labels: PlacedLabel[] }) {
         height: Math.max(box?.height ?? label.size * 1.15, label.size),
       };
     });
+    const geometryPoints = Array.from(svg.querySelectorAll<SVGGeometryElement>('[data-audit-template-line-id]'))
+      .flatMap(geometry => sampleSvgGeometry(geometry));
     const resolved = labels.map(label => ({ ...label }));
     const occupied: Array<{ left: number; right: number; top: number; bottom: number }> = [];
     const order = measured
@@ -3336,7 +3339,9 @@ function TextbookLabelLayer({ labels }: { labels: PlacedLabel[] }) {
         if (box.top < bounds.top) y += bounds.top - box.top;
         if (box.bottom > bounds.bottom) y -= box.bottom - bounds.bottom;
         box = measuredTextBox(x, y, item.width, item.height, anchor);
-        const score = occupied.reduce((sum, other) => sum + measuredOverlapArea(box, other, gap), 0);
+        const labelScore = occupied.reduce((sum, other) => sum + measuredOverlapArea(box, other, gap), 0);
+        const geometryScore = measuredGeometryHits(box, geometryPoints, 0.9) * 1000;
+        const score = labelScore + geometryScore;
         if (score === 0) {
           best = { x, y, box, score };
           break;
@@ -3364,6 +3369,7 @@ function TextbookLabelLayer({ labels }: { labels: PlacedLabel[] }) {
         if (measuredOverlapArea(occupied[i], occupied[j], 0.25) > 0) unresolved += 1;
       }
     }
+    unresolved += occupied.reduce((sum, box) => sum + (measuredGeometryHits(box, geometryPoints, 0.35) > 0 ? 1 : 0), 0);
     setMeasuredLayout({ signature: sourceSignature, labels: resolved, unresolved });
   }, [sourceSignature]);
 
@@ -3412,6 +3418,34 @@ function measuredOverlapArea(
   const width = Math.max(0, Math.min(a.right + gap, b.right + gap) - Math.max(a.left - gap, b.left - gap));
   const height = Math.max(0, Math.min(a.bottom + gap, b.bottom + gap) - Math.max(a.top - gap, b.top - gap));
   return width * height;
+}
+
+function sampleSvgGeometry(geometry: SVGGeometryElement) {
+  try {
+    const length = geometry.getTotalLength();
+    const sampleCount = Math.max(2, Math.min(180, Math.ceil(length / 0.7)));
+    return Array.from({ length: sampleCount + 1 }, (_, index) => {
+      const point = geometry.getPointAtLength((length * index) / sampleCount);
+      return { x: point.x, y: point.y };
+    });
+  } catch {
+    return [];
+  }
+}
+
+function measuredGeometryHits(
+  box: { left: number; right: number; top: number; bottom: number },
+  points: Array<{ x: number; y: number }>,
+  gap: number,
+) {
+  return points.reduce((count, point) => count + (
+    point.x >= box.left - gap
+    && point.x <= box.right + gap
+    && point.y >= box.top - gap
+    && point.y <= box.bottom + gap
+      ? 1
+      : 0
+  ), 0);
 }
 
 function Surface2D({
