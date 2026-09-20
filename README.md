@@ -23,7 +23,13 @@ NEXT_PUBLIC_GOOGLE_CLIENT_ID=
 
 ```bash
 npm run build
+npm run test:playback
+PHYSICA_BASE_URL=http://localhost:3000 PHYSICA_AUDIT_MOTION=1 npm run audit:labels
 ```
+
+The browser audit needs the local frontend and backend running. It checks label overlap,
+stationary versus moving beats, the independent full animation, and legend clearance.
+Set `PHYSICA_VIEWPORT_WIDTH=390 PHYSICA_VIEWPORT_HEIGHT=844` to check a narrow viewport.
 
 Also run the monorepo deployment gate before releasing:
 

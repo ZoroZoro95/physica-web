@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import { contractForbids, contractForStep, contractLabelsForTarget, type BeatVisualSpec } from "@/types/visualContract";
+import { shouldPlayBeatMotion } from "@/utils/beatPlayback";
 import {
   boxesOverlap,
   createLabelPlacementAuthority,
@@ -194,7 +195,7 @@ export default function TeachingBoard2D({
   const viewBox = `${bounds.minX + viewport.dx + (bounds.width - viewWidth) / 2} ${-bounds.maxY + viewport.dy + (bounds.height - viewHeight) / 2} ${viewWidth} ${viewHeight}`;
   const progress = clamp(animationProgress, 0, 1);
   const overlays = storyboardStep?.overlays ?? [];
-  const showMotion = mode === "event" && (overlays.includes("show_motion_progress") || overlays.includes("show_trajectory"));
+  const showMotion = mode === "event" && shouldPlayBeatMotion(storyboardStep?.motion?.mode, overlays);
   const showVectorContextTrajectory = false;
   const showTrajectory = showMotion || overlays.includes("show_trajectory");
   const visibleVectorList = visibleVectors(renderSceneSpec, visibleVectorPatterns);

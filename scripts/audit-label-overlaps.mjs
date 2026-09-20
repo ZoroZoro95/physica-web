@@ -5,9 +5,15 @@ const question = process.env.PHYSICA_AUDIT_QUESTION
   ?? "A stone is projected from level ground with speed 20 m/s at an angle of 30 degrees above the horizontal. Find its time of flight, maximum height, and horizontal range.";
 
 const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+const page = await browser.newPage({ viewport: {
+  width: Number(process.env.PHYSICA_VIEWPORT_WIDTH ?? 1440),
+  height: Number(process.env.PHYSICA_VIEWPORT_HEIGHT ?? 1000),
+} });
 const failures = [];
 let beat = 1;
+let staticBeats = 0;
+let movingBeats = 0;
+const checkMotion = process.env.PHYSICA_AUDIT_MOTION === "1";
 
 try {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
@@ -58,10 +64,45 @@ try {
         failures.push(`beat ${beat}: unresolved=${layer.unresolved}; ${layer.collisions.join(", ")}`);
       }
     }
+    if (checkMotion) {
+      const surface = page.locator('[data-audit-surface="animation-scene-3d"]');
+      await surface.waitFor({ state: "visible" });
+      const mode = await surface.getAttribute("data-audit-motion-mode");
+      const playing = await surface.getAttribute("data-audit-motion-playing");
+      const before = Number(await surface.getAttribute("data-audit-scene-progress"));
+      await page.waitForTimeout(450);
+      const after = Number(await surface.getAttribute("data-audit-scene-progress"));
+      if (["static", "freeze"].includes(mode)) {
+        staticBeats += 1;
+        if (playing !== "false" || before !== after) failures.push(`beat ${beat}: ${mode} scene moved`);
+      } else if (["partial", "lifecycle"].includes(mode)) {
+        movingBeats += 1;
+        if (playing !== "true" || after <= before) failures.push(`beat ${beat}: ${mode} scene did not advance (${before} -> ${after})`);
+      }
+    }
     const ahead = page.getByRole("button", { name: "Ahead", exact: true });
     if (await ahead.isDisabled()) break;
     await ahead.click();
     beat += 1;
+  }
+
+  if (checkMotion) {
+    await page.getByRole("button", { name: "Full animation", exact: true }).click();
+    const full = page.locator('[data-audit-full-lifecycle="true"]');
+    await full.waitFor({ state: "visible" });
+    const before = Number(await full.getAttribute("data-audit-scene-progress"));
+    await page.waitForTimeout(450);
+    const after = Number(await full.getAttribute("data-audit-scene-progress"));
+    if (after <= before) failures.push("separate full animation did not advance");
+    const canvasBox = await full.locator("canvas").boundingBox();
+    const legendBox = await full.locator('[data-audit-surface="simulation-legend"]').boundingBox();
+    if (!canvasBox || !legendBox || canvasBox.y + canvasBox.height > legendBox.y + 1) {
+      failures.push("legend overlaps the simulation canvas");
+    }
+    if (!staticBeats || !movingBeats) failures.push("audit must exercise both static and moving beats");
+    if (process.env.PHYSICA_AUDIT_SCREENSHOT) {
+      await full.screenshot({ path: process.env.PHYSICA_AUDIT_SCREENSHOT });
+    }
   }
 
 } finally {
@@ -70,3 +111,4 @@ try {
 
 if (failures.length) throw new Error(`Label overlap audit failed:\n${failures.join("\n")}`);
 process.stdout.write(`PASS label overlap audit across ${beat} beats\n`);
+if (checkMotion) process.stdout.write(`PASS playback: ${staticBeats} static beats, ${movingBeats} moving beats, and separate full animation\n`);
