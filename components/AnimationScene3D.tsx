@@ -4,6 +4,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Line, OrbitControls } from "@react-three/drei";
 import { MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { shouldPlayBeatMotion } from "@/utils/beatPlayback";
 import { contractForbids, contractForStep, contractLabelsForTarget, type BeatVisualSpec } from "@/types/visualContract";
 import {
   createLabelPlacementAuthority,
@@ -184,11 +185,7 @@ export default function AnimationScene3D({
   const showImpactAngle = visualAction === "show_impact_angle" || storyboardStep?.beat_visual_spec?.beat === "impact_angle";
   const hideLiveValues = Boolean(storyboardStep?.visual_plan?.hide_live_values);
   const shouldAnimateMotion = isFullLifecycle
-    || (!showImpactVelocityState && (
-      storyboardOverlays.includes("show_motion_progress")
-      || motionMode === "partial"
-      || motionMode === "lifecycle"
-    ));
+    || (!showImpactVelocityState && shouldPlayBeatMotion(motionMode, storyboardOverlays));
   const showStaticComponents = storyboardOverlays.includes("show_velocity_components");
   const showTrajectoryLines = isFullLifecycle || shouldAnimateMotion || (
     storyboardOverlays.includes("show_trajectory")
@@ -295,12 +292,15 @@ export default function AnimationScene3D({
       data-audit-step-id={stepId}
       data-audit-teaching-step-id={teachingStepId ?? ""}
       data-audit-full-lifecycle={isFullLifecycle ? "true" : "false"}
+      data-audit-motion-mode={isFullLifecycle ? "lifecycle" : motionMode}
+      data-audit-motion-playing={shouldAnimateMotion ? "true" : "false"}
+      data-audit-scene-progress={sceneProgress}
       data-audit-show-trajectory={showTrajectoryLines ? "true" : "false"}
       data-audit-visual-action={visualAction}
       data-audit-visible-vector-ids={visibleLiveVectors(model, vectorStoryboardStep, sceneProgress, effectiveRevealIds).map(vector => vector.id).join(",")}
       style={{ width: "100%", height: "100%", minHeight: 0, position: "relative", overflow: "hidden", background: COLORS.bg, cursor: cameraTool === "pan" ? "grab" : "default" }}
     >
-      <div style={animationCanvasSafeAreaStyle}>
+      <div style={{ ...animationCanvasSafeAreaStyle, bottom: showLivePanel && !hideLiveValues ? 92 : 44 }}>
         <Canvas
           shadows
           camera={{ position: activeCamera.position, fov: activeCamera.fov }}
@@ -533,21 +533,23 @@ export default function AnimationScene3D({
         </button>
       </div>
       {showLivePanel && !hideLiveValues && (
-        <div style={{
+        <div data-audit-surface="simulation-legend" style={{
           position: "absolute",
-          left: 12,
-          bottom: 12,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 92,
+          boxSizing: "border-box",
           display: "grid",
-          gap: 5,
-          background: "rgba(17,17,28,0.72)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: 8,
+          gridTemplateRows: "auto minmax(0, 1fr)",
+          gap: 6,
+          background: COLORS.bg,
+          borderTop: "1px solid rgba(255,255,255,0.12)",
           padding: "8px 10px",
           color: COLORS.text,
           fontSize: 11,
           lineHeight: 1.35,
-          pointerEvents: "none",
-          minWidth: 164,
+          pointerEvents: "auto",
         }}>
           <div style={{
             display: "flex",
@@ -559,23 +561,23 @@ export default function AnimationScene3D({
             borderBottom: "1px solid rgba(255,255,255,0.10)",
           }}>
             <span style={{ color: COLORS.text, fontWeight: 850 }}>{isFullLifecycle ? "Legend" : "Live values"}</span>
+            <span style={{ color: COLORS.muted, fontSize: 10 }}>{vectorSymbolLegend(model.world)}</span>
             <span style={{ color: COLORS.muted, fontFamily: "monospace" }}>{Math.round(sceneProgress * 100)}%</span>
           </div>
-          <div style={{
-            color: COLORS.muted,
-            fontSize: 10,
-            lineHeight: 1.35,
-            paddingBottom: 3,
-            borderBottom: "1px solid rgba(255,255,255,0.06)",
+          <div tabIndex={0} role="region" aria-label="Simulation parameter values" style={{
+            display: "flex",
+            gap: 16,
+            overflowX: "auto",
+            minWidth: 0,
+            paddingBottom: 4,
           }}>
-            {vectorSymbolLegend(model.world)}
-          </div>
           {liveValues.map(row => (
-            <div key={row.key} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+            <div key={row.key} style={{ display: "grid", alignContent: "start", gap: 3, flex: "0 0 auto", minWidth: 64 }}>
               <span style={{ color: COLORS.muted }}>{row.label}</span>
               <span style={{ fontFamily: "monospace", color: row.dynamic ? COLORS.trajectory : COLORS.text }}>{row.value}</span>
             </div>
           ))}
+          </div>
         </div>
       )}
     </div>
