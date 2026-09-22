@@ -2,9 +2,11 @@
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Line, OrbitControls } from "@react-three/drei";
-import { MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
+import { MutableRefObject, useEffect, useId, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { shouldPlayBeatMotion } from "@/utils/beatPlayback";
+import { fitSceneFrame, type SceneBounds } from "@/utils/sceneFraming";
+import SceneLabelLayout from "@/components/SceneLabelLayout";
 import { contractForbids, contractForStep, contractLabelsForTarget, type BeatVisualSpec } from "@/types/visualContract";
 import {
   createLabelPlacementAuthority,
@@ -300,14 +302,15 @@ export default function AnimationScene3D({
       data-audit-visible-vector-ids={visibleLiveVectors(model, vectorStoryboardStep, sceneProgress, effectiveRevealIds).map(vector => vector.id).join(",")}
       style={{ width: "100%", height: "100%", minHeight: 0, position: "relative", overflow: "hidden", background: COLORS.bg, cursor: cameraTool === "pan" ? "grab" : "default" }}
     >
-      <div style={{ ...animationCanvasSafeAreaStyle, bottom: showLivePanel && !hideLiveValues ? 92 : 44 }}>
+      <div style={{ ...animationCanvasSafeAreaStyle, bottom: 92 }}>
         <Canvas
+          orthographic
           shadows
-          camera={{ position: activeCamera.position, fov: activeCamera.fov }}
+          camera={{ position: activeCamera.position, zoom: 30, near: 0.01, far: 1000 }}
           gl={{ antialias: true }}
           style={{ width: "100%", height: "100%", display: "block" }}
         >
-          <CameraRig bookmark={activeCamera} controlsRef={controlsRef} resetKey={stepId} />
+          <CameraRig bookmark={activeCamera} controlsRef={controlsRef} bounds={model.frameBounds} />
           <color attach="background" args={[COLORS.bg]} />
           <ambientLight intensity={0.58} />
           <directionalLight position={[8, 12, 8]} intensity={1.15} castShadow />
@@ -318,26 +321,23 @@ export default function AnimationScene3D({
             makeDefault
             enableDamping
             dampingFactor={0.08}
-            enableRotate={cameraTool === "orbit"}
+            enableRotate={false}
             enablePan
             enableZoom
             zoomSpeed={0.72}
             rotateSpeed={0.62}
             panSpeed={0.62}
-            minDistance={0.75}
-            maxDistance={model.cameraDistance * 2.2}
-            minPolarAngle={0.12}
-            maxPolarAngle={Math.PI / 2.12}
+            minZoom={4}
+            maxZoom={600}
             mouseButtons={{
-              LEFT: cameraTool === "pan" ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE,
+              LEFT: THREE.MOUSE.PAN,
               MIDDLE: THREE.MOUSE.DOLLY,
-              RIGHT: cameraTool === "pan" ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN,
+              RIGHT: THREE.MOUSE.PAN,
             }}
-            target={activeCamera.target}
           />
 
         <Ground width={model.groundWidth} depth={model.groundDepth} />
-        <Axes length={model.axisLength} showLabels={showAxisLabels} />
+        <Axes length={model.axisLength} height={model.maxY + 0.35} showLabels={showAxisLabels} />
         {model.surfaces.map(surface => (
           <SurfaceLine
             key={surface.id}
@@ -506,6 +506,7 @@ export default function AnimationScene3D({
           />
         )}
 
+        <SceneLabelLayout />
         </Canvas>
       </div>
       <div aria-hidden="true" style={animationCanvasBottomSafeZoneStyle} />
@@ -644,36 +645,40 @@ function cameraToolButtonStyle(active: boolean): React.CSSProperties {
   };
 }
 
-function Axes({ length, showLabels = true }: { length: number; showLabels?: boolean }) {
+function Axes({ length, height, showLabels = true }: { length: number; height: number; showLabels?: boolean }) {
   return (
     <group>
       <Line points={[[0, 0.02, 0], [length, 0.02, 0]]} color="#3a3a55" lineWidth={2} />
-      <Line points={[[0, 0, 0], [0, length * 0.42, 0]]} color="#3a3a55" lineWidth={2} />
+      <Line points={[[0, 0, 0], [0, height, 0]]} color="#3a3a55" lineWidth={2} />
       {showLabels && (
         <>
           <SceneLabel position={[length, 0.22, 0]} text="x" color={COLORS.muted} />
-          <SceneLabel position={[0.24, length * 0.42, 0]} text="y" color={COLORS.muted} />
+          <SceneLabel position={[0.24, height, 0]} text="y" color={COLORS.muted} />
         </>
       )}
     </group>
   );
 }
 
-function CameraRig({ bookmark, controlsRef, resetKey }: { bookmark: CameraBookmark; controlsRef: MutableRefObject<any>; resetKey: string }) {
-  const { camera, invalidate } = useThree();
+function CameraRig({ bookmark, controlsRef, bounds }: { bookmark: CameraBookmark; controlsRef: MutableRefObject<any>; bounds: SceneBounds }) {
+  const { camera, invalidate, size, gl } = useThree();
   useEffect(() => {
-    camera.position.set(bookmark.position[0], bookmark.position[1], bookmark.position[2]);
-    if ("fov" in camera) {
-      (camera as THREE.PerspectiveCamera).fov = bookmark.fov;
-      (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
-    }
+    const fit = fitSceneFrame(bounds, size.width, size.height);
+    const manual = bookmark.id.startsWith("manual:");
+    const target: V3 = manual ? bookmark.target : [fit.x, fit.y, 0];
+    camera.position.set(target[0], target[1], 30);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(...target);
+    camera.zoom = fit.zoom * (manual ? 2 : 1);
+    camera.updateProjectionMatrix();
     const controls = controlsRef.current;
     if (controls?.target) {
-      controls.target.set(bookmark.target[0], bookmark.target[1], bookmark.target[2]);
+      controls.target.set(...target);
       controls.update();
     }
+    gl.domElement.dataset.auditFrame = JSON.stringify({ ...fit, bounds });
     invalidate();
-  }, [bookmark.id, bookmark.position, bookmark.target, bookmark.fov, resetKey, camera, controlsRef, invalidate]);
+  }, [bookmark.id, bookmark.target, bounds, size.width, size.height, camera, controlsRef, invalidate, gl]);
   return null;
 }
 
@@ -761,6 +766,7 @@ function VectorLine({
       {showLabel && (
         <SceneLabel
           position={labelPlacement.position}
+          anchorPosition={liftedTo}
           text={label}
           color={dimmed ? COLORS.muted : color}
           plain
@@ -1119,6 +1125,7 @@ function SceneLabel({
   compact = false,
   plain = false,
   anchor = "center",
+  anchorPosition = position,
 }: {
   position: V3;
   text: string;
@@ -1126,7 +1133,9 @@ function SceneLabel({
   compact?: boolean;
   plain?: boolean;
   anchor?: SceneLabelAnchor;
+  anchorPosition?: V3;
 }) {
+  const id = useId();
   const boxed = compact && !plain;
   const centered = anchor === "center";
   const transform = anchor === "start"
@@ -1135,21 +1144,26 @@ function SceneLabel({
     ? "translate(-100%, -50%)"
     : undefined;
   return (
-    <Html position={position} center={centered} distanceFactor={8} style={{ pointerEvents: "none" }}>
-      <div style={{
+    <Html position={position} center={centered} style={{ pointerEvents: "none" }}>
+      <div style={{ transform, position: "relative" }}>
+      <svg width="1" height="1" aria-hidden="true" style={{ position: "absolute", overflow: "visible", pointerEvents: "none" }}>
+        <line stroke={color} strokeWidth="1" style={{ opacity: 0 }} />
+      </svg>
+      <div data-audit-scene-label={text} data-label-id={id} data-priority={plain ? 100 : compact ? 50 : 20}
+        data-anchor-x={anchorPosition[0]} data-anchor-y={anchorPosition[1]} data-anchor-z={anchorPosition[2]} style={{
         color,
-        fontSize: plain || compact ? 10.5 : 12,
+        fontSize: 13,
         fontWeight: 700,
         whiteSpace: "nowrap",
         textShadow: "0 1px 8px rgba(0,0,0,0.85)",
         fontFamily: "-apple-system,'SF Pro Display','Helvetica Neue',sans-serif",
-        background: boxed ? "rgba(17,17,28,0.68)" : "transparent",
+        background: "rgba(17,17,28,0.88)",
         border: boxed ? "1px solid rgba(255,255,255,0.10)" : "none",
         borderRadius: boxed ? 5 : 0,
         padding: boxed ? "1px 4px" : 0,
-        transform,
       }}>
         {text}
+      </div>
       </div>
     </Html>
   );
@@ -1331,7 +1345,16 @@ function buildSceneModel(sceneSpec: AnimationSceneSpec) {
   const showLandingMarker = Boolean(sceneSpec.geometry.points.landing)
     && !["incline", "two_inclines", "multi_projectile", "incline_collision"].includes(world)
     && !String(sceneSpec.geometry.points.landing?.label ?? "").toLowerCase().includes("reference");
+  const framePoints = allCoordinatePoints.map(to3);
+  const vectorMargin = vectorBase * 0.35;
+  const frameBounds: SceneBounds = {
+    minX: Math.min(0, ...framePoints.map(point => point[0])) - vectorMargin,
+    maxX: Math.max(maxX + 0.8, ...framePoints.map(point => point[0])) + vectorMargin,
+    minY: Math.min(0, ...framePoints.map(point => point[1])) - Math.max(0.65, vectorMargin),
+    maxY: Math.max(maxY + 0.35, ...framePoints.map(point => point[1])) + vectorMargin,
+  };
   return {
+    frameBounds,
     world,
     unknown,
     rawTrajectory: rawPoints,

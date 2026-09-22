@@ -31,6 +31,18 @@ The browser audit needs the local frontend and backend running. It checks label 
 stationary versus moving beats, the independent full animation, and legend clearance.
 Set `PHYSICA_VIEWPORT_WIDTH=390 PHYSICA_VIEWPORT_HEIGHT=844` to check a narrow viewport.
 
+Scene readability checks:
+
+```bash
+node scripts/test-scene-readability.mjs
+PHYSICA_BASE_URL=http://localhost:3000 node scripts/audit-scene-readability.mjs
+```
+
+The render audit uses six real solver responses (level ground, tower, incline,
+two inclines, staircase, and two particles) at desktop/mobile widths. It writes
+screenshots and a label clipping/overlap report to `/tmp/physica-readability`.
+These are text render fixtures; this check does not test image extraction.
+
 Also run the monorepo deployment gate before releasing:
 
 ```bash

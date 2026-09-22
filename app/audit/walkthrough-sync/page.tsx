@@ -257,7 +257,7 @@ export default function WalkthroughSyncAuditPage() {
             <span style={mutedStyle}>Must stay separate from beat replay.</span>
           </div>
           <div style={fullLifecycleCanvasStyle}>
-            <AnimationScene3D sceneSpec={scene} stepId="__full_lifecycle" animationProgress={0.35} vectorMode="none" />
+            <AnimationScene3D sceneSpec={scene} stepId="__full_lifecycle" animationProgress={0.35} vectorMode="lifecycle" />
           </div>
         </section>
       )}
