@@ -17,6 +17,7 @@ let movingBeats = 0;
 const checkMotion = process.env.PHYSICA_AUDIT_MOTION === "1";
 const reportDir = process.env.PHYSICA_BEAT_AUDIT_DIR;
 const samples = [];
+const expectedLabels = JSON.parse(process.env.PHYSICA_AUDIT_EXPECT_LABELS ?? '[]');
 if (reportDir) await mkdir(reportDir, { recursive: true });
 
 try {
@@ -55,6 +56,7 @@ try {
         const clipped = labels.filter(label => label.left < frame.left - 1 || label.right > frame.right + 1 || label.top < frame.top - 1 || label.bottom > frame.bottom + 1).map(label => label.key);
         const unreadable = labels.filter(label => label.height < 12).map(label => label.key);
         const unlabeledVectors = [...board.querySelectorAll('[data-audit-vector-id]')]
+          .filter(node => node.getBoundingClientRect().width > 0 || node.getBoundingClientRect().height > 0)
           .map(node => node.getAttribute('data-audit-vector-id'))
           .filter(id => !layer && !labels.some(label => label.key === `vector-label:${id}`));
         for (let i = 0; i < labels.length; i += 1) {
@@ -144,6 +146,10 @@ try {
   if (reportDir) await writeFile(`${reportDir}/report.json`, JSON.stringify({ question, failures, samples }, null, 2));
 }
 
+const observedLabels = samples.flatMap(sample => sample.boards.flatMap(board => board.labels.map(label => label.text)));
+for (const expected of expectedLabels) {
+  if (!observedLabels.includes(expected)) failures.push(`expected rendered label missing: ${expected}`);
+}
 if (failures.length) throw new Error(`Label overlap audit failed:\n${failures.join("\n")}`);
 process.stdout.write(`PASS label overlap audit across ${beat} beats\n`);
 if (checkMotion) process.stdout.write(`PASS playback: ${staticBeats} static beats, ${movingBeats} moving beats, and separate full animation\n`);

@@ -757,10 +757,10 @@ function TextbookProjectileTemplate({
         {template === "incline-collision-normal-return" && <InclineCollisionNormalReturnTemplate markerId={markerId} alphaText={alphaText} alphaDeg={alphaDeg} />}
         {template === "incline-collision-equation" && <InclineCollisionEquationTemplate markerId={markerId} alphaText={alphaText} alphaDeg={alphaDeg} />}
         {template === "incline-collision-result" && <InclineCollisionResultTemplate markerId={markerId} alphaText={alphaText} alphaDeg={alphaDeg} />}
-        {template === "staircase-setup" && <StaircaseTemplate markerId={markerId} variant="setup" />}
-        {template === "staircase-motion" && <StaircaseTemplate markerId={markerId} variant="motion" />}
-        {template === "staircase-drop" && <StaircaseTemplate markerId={markerId} variant="drop" />}
-        {template === "staircase-impact" && <StaircaseTemplate markerId={markerId} variant="impact" />}
+        {template === "staircase-setup" && <StaircaseTemplate markerId={markerId} variant="setup" sceneSpec={sceneSpec} />}
+        {template === "staircase-motion" && <StaircaseTemplate markerId={markerId} variant="motion" sceneSpec={sceneSpec} />}
+        {template === "staircase-drop" && <StaircaseTemplate markerId={markerId} variant="drop" sceneSpec={sceneSpec} />}
+        {template === "staircase-impact" && <StaircaseTemplate markerId={markerId} variant="impact" sceneSpec={sceneSpec} />}
         {template === "smooth-plane-setup" && <SmoothPlaneTemplate markerId={markerId} variant="setup" speedText={speedText} alphaText={alphaText} />}
         {template === "smooth-plane-acceleration" && <SmoothPlaneTemplate markerId={markerId} variant="acceleration" speedText={speedText} alphaText={alphaText} />}
         {template === "smooth-plane-resultant" && <SmoothPlaneTemplate markerId={markerId} variant="resultant" speedText={speedText} alphaText={alphaText} answerText={finalAnswerText} />}
@@ -3168,7 +3168,13 @@ function InclineCollisionResultTemplate({ markerId, alphaText, alphaDeg }: { mar
 
 type StaircaseTemplateVariant = "setup" | "motion" | "drop" | "impact";
 
-function StaircaseTemplate({ markerId, variant }: { markerId: string; variant: StaircaseTemplateVariant }) {
+function StaircaseTemplate({ markerId, variant, sceneSpec }: { markerId: string; variant: StaircaseTemplateVariant; sceneSpec: SceneSpec2D }) {
+  const value = (key: string, symbol: string) => {
+    const quantity = sceneSpec.quantities?.[key];
+    return quantity && Number.isFinite(quantity.value)
+      ? `${symbol} = ${formatQuantityValue(quantity.value, quantity.unit)}${unitForQuantity(quantity.unit)}`
+      : symbol;
+  };
   const start = { x: 18, y: 15 };
   const impact = { x: 83, y: 48 };
   const stepPath = staircasePath(18, 17, 8, 4, 8);
@@ -3178,17 +3184,17 @@ function StaircaseTemplate({ markerId, variant }: { markerId: string; variant: S
       <path d={`M ${start.x} ${start.y} C 38 15, 61 34, ${impact.x} ${impact.y}`} fill="none" stroke={C.surface} strokeWidth={0.58} strokeDasharray="2.2 1.7" />
       <circle cx={start.x} cy={start.y} r={2.7} fill={C.surface} />
       <TemplateArrow markerId={markerId} from={{ x: start.x + 3.5, y: start.y }} to={{ x: start.x + 25, y: start.y }} auditId="staircase-horizontal-velocity" />
-      <TextbookSvgText x={start.x + 8.5} y={start.y - 4.5} text="u = 10 m/s" size={4.4} />
+      <TextbookSvgText x={start.x + 8.5} y={start.y - 4.5} text={value("u", "u")} size={4.4} />
 
       <line x1={26} y1={22.7} x2={34} y2={22.7} stroke={C.surface} strokeWidth={0.42} markerEnd={`url(#${markerId})`} data-audit-template-line-id="staircase-x-dimension" />
       <line x1={35.4} y1={17} x2={35.4} y2={21} stroke={C.surface} strokeWidth={0.42} markerEnd={`url(#${markerId})`} data-audit-template-line-id="staircase-y-dimension" />
-      <TextbookSvgText x={26.2} y={29.8} text="x = 1 m" size={3.6} />
-      <TextbookSvgText x={8.5} y={21.2} text="y = 1 m" size={3.6} />
+      <TextbookSvgText x={26.2} y={29.8} text={value("step_width", "w")} size={3.6} />
+      <TextbookSvgText x={8.5} y={21.2} text={value("step_height", "h")} size={3.6} />
 
       {(variant === "drop" || variant === "impact") && (
         <>
           <TemplateArrow markerId={markerId} from={{ x: 57, y: 18 }} to={{ x: 57, y: 44 }} auditId="staircase-drop" />
-          <TextbookSvgText x={55.0} y={11.2} text="drop = n m" size={4.2} />
+          <TextbookSvgText x={55.0} y={11.2} text="drop = nh" size={4.2} />
           <TemplateArrow markerId={markerId} from={{ x: 48, y: 22 }} to={{ x: 48, y: 37 }} auditId="staircase-g" />
           <TextbookSvgText x={50.7} y={31.0} text="g" size={4.4} />
         </>
@@ -3197,14 +3203,14 @@ function StaircaseTemplate({ markerId, variant }: { markerId: string; variant: S
       {variant === "motion" && (
         <>
           <line x1={start.x} y1={55} x2={impact.x} y2={55} stroke={C.surface} strokeWidth={0.42} data-audit-template-line-id="staircase-horizontal-distance" />
-          <TextbookSvgText x={50.5} y={60.0} text="horizontal distance = n m" size={4.0} anchor="middle" />
+          <TextbookSvgText x={50.5} y={60.0} text="horizontal distance = nw" size={4.0} anchor="middle" />
         </>
       )}
 
       {variant === "impact" && (
         <>
           <circle cx={impact.x} cy={impact.y} r={3.0} fill={C.bg} stroke={C.surface} strokeWidth={0.72} />
-          <TextbookSvgText x={76.0} y={57.5} text="n = 21" size={5.3} />
+          <TextbookSvgText x={76.0} y={57.5} text={value("step", "n")} size={5.3} />
         </>
       )}
 
