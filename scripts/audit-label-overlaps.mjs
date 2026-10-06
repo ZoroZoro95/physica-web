@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { mkdir, writeFile } from "node:fs/promises";
 
 const baseUrl = process.env.PHYSICA_BASE_URL ?? "http://localhost:3001";
 const question = process.env.PHYSICA_AUDIT_QUESTION
@@ -14,6 +15,9 @@ let beat = 1;
 let staticBeats = 0;
 let movingBeats = 0;
 const checkMotion = process.env.PHYSICA_AUDIT_MOTION === "1";
+const reportDir = process.env.PHYSICA_BEAT_AUDIT_DIR;
+const samples = [];
+if (reportDir) await mkdir(reportDir, { recursive: true });
 
 try {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
@@ -35,15 +39,24 @@ try {
   await page.getByRole("button", { name: "Generate walkthrough", exact: true }).click();
 
   while (true) {
-    await page.locator('[data-audit-label-layer="template-authority"]').first().waitFor({ state: "visible" });
+    await page.locator('[data-audit-surface="teaching-board-2d"]').first().waitFor({ state: "visible" });
+    await page.waitForTimeout(350);
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     const result = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll('[data-audit-label-layer="template-authority"]')).map(layer => {
-        const labels = Array.from(layer.querySelectorAll('[data-audit-label-key]')).map(node => {
-          const box = node.getBoundingClientRect();
-          return { key: node.getAttribute("data-audit-label-key"), left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+      return Array.from(document.querySelectorAll('[data-audit-surface="teaching-board-2d"]')).map(board => {
+        const layer = board.querySelector('[data-audit-label-layer="template-authority"]');
+        const frame = board.getBoundingClientRect();
+        const labels = Array.from(board.querySelectorAll('[data-audit-label-key]')).map(node => {
+          const text = node.matches("text") ? node : node.querySelector("text, foreignObject") ?? node;
+          const box = text.getBoundingClientRect();
+          return { key: node.getAttribute("data-audit-label-key"), text: text.textContent, left: box.left, right: box.right, top: box.top, bottom: box.bottom, height: box.height };
         });
         const collisions = [];
+        const clipped = labels.filter(label => label.left < frame.left - 1 || label.right > frame.right + 1 || label.top < frame.top - 1 || label.bottom > frame.bottom + 1).map(label => label.key);
+        const unreadable = labels.filter(label => label.height < 12).map(label => label.key);
+        const unlabeledVectors = [...board.querySelectorAll('[data-audit-vector-id]')]
+          .map(node => node.getAttribute('data-audit-vector-id'))
+          .filter(id => !layer && !labels.some(label => label.key === `vector-label:${id}`));
         for (let i = 0; i < labels.length; i += 1) {
           for (let j = i + 1; j < labels.length; j += 1) {
             const a = labels[i];
@@ -54,17 +67,31 @@ try {
           }
         }
         return {
-          unresolved: Number(layer.getAttribute("data-audit-unresolved-overlaps") || 0),
+          step: board.getAttribute("data-audit-step-id"),
+          actor: board.getAttribute("data-audit-actor-filter"),
+          actors: [...new Set([...board.querySelectorAll("[data-audit-actor-id]")].map(node => node.getAttribute("data-audit-actor-id")))],
+          labels,
+          clipped,
+          unreadable,
+          unlabeledVectors,
+          unresolved: Number(layer?.getAttribute("data-audit-unresolved-overlaps") || 0),
           collisions,
         };
       });
     });
     for (const layer of result) {
-      if (layer.unresolved || layer.collisions.length) {
-        failures.push(`beat ${beat}: unresolved=${layer.unresolved}; ${layer.collisions.join(", ")}`);
+      if (layer.unresolved || layer.collisions.length || layer.clipped.length) {
+        failures.push(`beat ${beat}: unresolved=${layer.unresolved}; ${layer.collisions.join(", ")}; clipped=${layer.clipped.join(", ")}`);
       }
+      if (layer.actor && layer.actors.some(actor => actor !== layer.actor)) failures.push(`beat ${beat}: object board contains another actor`);
+      if (layer.unreadable.length) failures.push(`beat ${beat}: labels smaller than 12px: ${layer.unreadable.join(', ')}`);
+      if (layer.unlabeledVectors.length) failures.push(`beat ${beat}: vectors without labels: ${layer.unlabeledVectors.join(', ')}`);
     }
+    samples.push({ beat, boards: result });
+    if (reportDir) await page.locator('[data-audit-surface="teaching-board-2d"]').first().screenshot({ path: `${reportDir}/beat-${beat}.png` });
     if (checkMotion) {
+      // Screenshot capture can outlast a short beat. Measure from an explicit replay.
+      await page.getByRole('button', { name: 'replay beat', exact: true }).last().click();
       const surface = page.locator('[data-audit-surface="animation-scene-3d"]');
       await surface.waitFor({ state: "visible" });
       const mode = await surface.getAttribute("data-audit-motion-mode");
@@ -105,8 +132,16 @@ try {
     }
   }
 
+} catch (error) {
+  failures.push(String(error));
+  if (reportDir) {
+    await page.screenshot({ path: `${reportDir}/failure.png`, fullPage: true });
+    await writeFile(`${reportDir}/failure.txt`, await page.locator('body').innerText());
+  }
+  throw error;
 } finally {
   await browser.close();
+  if (reportDir) await writeFile(`${reportDir}/report.json`, JSON.stringify({ question, failures, samples }, null, 2));
 }
 
 if (failures.length) throw new Error(`Label overlap audit failed:\n${failures.join("\n")}`);

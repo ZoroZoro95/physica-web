@@ -177,11 +177,26 @@ export default function TeachingBoard2D({
     () => sceneBounds(renderSceneSpec, trajectories, mode, compactConceptViewport),
     [renderSceneSpec, trajectories, mode, compactConceptViewport],
   );
-  const ui = uiScale(bounds);
+  const boardRef = useRef<HTMLDivElement>(null);
+  const [boardSize, setBoardSize] = useState({ width: 480, height: 270 });
+  useEffect(() => {
+    const board = boardRef.current;
+    if (!board) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width && entry.contentRect.height) {
+        setBoardSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+      }
+    });
+    observer.observe(board);
+    return () => observer.disconnect();
+  }, [actorFilter]);
+  // SVG uses a uniform scale: reserve readable text in the limiting dimension.
+  const unitsPerPixel = Math.max(bounds.width / boardSize.width, bounds.height / boardSize.height);
+  const ui = Math.max(uiScale(bounds), 16 * unitsPerPixel / 0.72);
   const launchAngle = launchAngleForScene(renderSceneSpec);
   const showLaunchAngleLabel = Boolean(launchAngle && shouldShowLaunchAngleLabel(renderSceneSpec, stepId, visualState, activeHighlightIds, revealIds));
   const textbookAnnotations = textbookProjectileAnnotations(renderSceneSpec, trajectories, visualState, activeHighlightIds);
-  const useTextbookLayout = Boolean(textbookAnnotations);
+  const useTextbookLayout = Boolean(textbookAnnotations && !actorFilter);
   const isActorScoped = Boolean(actorFilter);
   const [panMode, setPanMode] = useState(false);
   const [viewport, setViewport] = useState({ dx: 0, dy: 0, zoom: 1 });
@@ -218,6 +233,15 @@ export default function TeachingBoard2D({
     useTextbookLayout,
   });
   const placedLabels = placeLabels([
+    ...(isActorScoped ? trajectories.map(trajectory => ({
+      key: `actor-label:${trajectory.actor}`,
+      x: trajectory.points[0].x - ui,
+      y: trajectory.points[0].y + ui,
+      text: actorLabel(trajectory.actor),
+      size: 0.72 * ui,
+      color: C.text,
+      priority: 100,
+    })) : []),
     ...(launchAngle && showLaunchAngleLabel ? [angleLabelCandidate(launchAngle, bounds.scale, ui, activeHighlightIds, stepId)] : []),
     ...(textbookAnnotations && !isActorScoped ? textbookComponentLabelCandidates(textbookAnnotations, visibleVectorPatterns, activeHighlightIds, ui) : []),
     ...vectorDrawings.filter(item => item.showLabel).map(item => ({
@@ -296,9 +320,11 @@ export default function TeachingBoard2D({
 
   return (
     <div
+      ref={boardRef}
       data-audit-surface="teaching-board-2d"
       data-audit-step-id={stepId}
       data-audit-mode={mode}
+      data-audit-actor-filter={actorFilter ?? ""}
       data-audit-show-trajectory={showTrajectory ? "true" : "false"}
       data-audit-visible-vector-ids={vectorDrawings.map(item => item.vector.id).join(",")}
       data-audit-highlight-ids={activeHighlightIds.join(",")}
@@ -405,7 +431,7 @@ export default function TeachingBoard2D({
                 x2={drawn.to.x}
                 y2={-drawn.to.y}
                 stroke={useTextbookLayout ? C.surface : color}
-                strokeWidth={(highlighted ? 0.01 : 0.007) * bounds.scale}
+                strokeWidth={Math.max(1.5 * unitsPerPixel, (highlighted ? 0.01 : 0.007) * bounds.scale)}
                 strokeLinecap="round"
                 markerEnd={`url(#${vector.component.includes("gravity") ? `arrow-gravity-${mode}` : `arrow-${mode}`})`}
                 opacity={dimmed ? 0.42 : 1}
@@ -3722,6 +3748,7 @@ function launchAngleForScene(sceneSpec: SceneSpec2D) {
   if (sceneSpec.problem.world === "parametric_curve") return null;
   const quantity = sceneSpec.quantities?.theta ?? sceneSpec.quantities?.angle ?? sceneSpec.quantities?.launch_angle;
   const motion = sceneSpec.motion ?? sceneSpec.motions?.[0];
+  if (motion && Math.hypot(motion.initial.vx, motion.initial.vy) < 1e-8) return null;
   const launch = sceneSpec.geometry.points.launch ?? sceneSpec.geometry.points.O ?? Object.values(sceneSpec.geometry.points ?? {})[0];
   if (!launch) return null;
   let angleDeg = quantity && Number.isFinite(quantity.value) ? quantity.value : NaN;
@@ -3876,7 +3903,7 @@ function layoutVectors({
     const color = dimmed ? C.dim : highlighted ? C.highlight : vectorColor(vector);
     const label = vectorLabel(storyboardStep, vector, visualState, activeHighlightIds, revealIds);
     const explicitLabel = explicitLabelPatterns.some(pattern => vectorPatternMatches(pattern, vector.id));
-    const showLabel = !useTextbookLayout && explicitLabel && (
+    const showLabel = !useTextbookLayout && (explicitLabel || highlighted || vector.anchor === "launch") && (
       explicitVectorLabelCount <= 2
       || highlightedExplicitVectorLabelCount === 0
       || highlighted
@@ -3928,9 +3955,9 @@ function resolveVector(
 
 function vectorBaseLength(vector: NonNullable<SceneSpec2D["live_vectors"]>[number], scale: number) {
   if (vector.kind === "axis") return 0.42 * scale;
-  if (vector.component === "velocity") return 0.25 * scale;
-  if (vector.component === "x_velocity" || vector.component === "y_velocity") return 0.19 * scale;
-  return 0.22 * scale;
+  if (vector.component === "velocity") return 0.65 * scale;
+  if (vector.component === "x_velocity" || vector.component === "y_velocity") return 0.50 * scale;
+  return 0.55 * scale;
 }
 
 function vectorLabelGap(vector: NonNullable<SceneSpec2D["live_vectors"]>[number], ui: number) {
@@ -3949,11 +3976,12 @@ function vectorLayoutCandidates(
   index: number,
 ): VectorCandidate[] {
   const scale = bounds.scale;
-  const baseSpread = teachingVectorSpread(vector, scale, index);
+  // Collision avoidance may move labels, never the physical origin of a vector.
+  const baseSpread = { x: 0, y: 0 };
   const perp = { x: -direction.y, y: direction.x };
   const along = direction;
   const lengthMultipliers = vector.kind === "axis" ? [1, 0.78, 1.18, 0.62] : [1, 0.82, 1.16, 0.66, 1.34];
-  const lanes = vectorLaneOffsets(vector, scale, index);
+  const lanes = [{ perp: 0, along: 0 }];
   const labelSides = preferredLabelSides(anchorBase, perp, bounds);
   const candidates: VectorCandidate[] = [];
   for (const lane of lanes) {

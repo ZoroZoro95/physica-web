@@ -2933,6 +2933,8 @@ const actorBoardGridStyle: CSSProperties = {
   minHeight: 0,
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gridAutoRows: "minmax(250px, 1fr)",
+  overflowY: "auto",
   gap: 8,
 };
 
