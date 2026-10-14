@@ -8,7 +8,13 @@ const backendApiUrl = (
 
 const nextConfig: NextConfig = {
   async rewrites() {
+    const playgroundUrl = process.env.PLAYGROUND_API_URL
+      ?? (process.env.NODE_ENV === "development" ? "http://127.0.0.1:8001" : undefined);
     return [
+      ...(playgroundUrl ? [{
+        source: "/api/playground/:path*",
+        destination: `${playgroundUrl.replace(/\/+$/, "")}/:path*`,
+      }] : []),
       {
         source: "/api/backend/:path*",
         destination: `${backendApiUrl}/:path*`,
