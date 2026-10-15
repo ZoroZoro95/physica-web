@@ -70,6 +70,42 @@ try {
     assert.equal(await page.getByTestId("playground-error").count(), 0);
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${out}/mirrored-${width}.png`, fullPage: true });
+    // Stairs are API-generated solids, including a mirrored scene, not a picture.
+    await page.getByLabel("Surface", { exact: true }).selectOption("staircase");
+    await page.getByLabel("Gravity (m/s²)", { exact: true }).fill("9.8");
+    for (const descent of ["right", "left"]) {
+      await page.getByLabel("Descent", { exact: true }).selectOption(descent);
+      const simulationResponse = page.waitForResponse(r => r.url().endsWith("/v1/simulations") && r.request().method() === "POST", { timeout: 15000 });
+      await page.getByRole("button", { name: "Build scene", exact: true }).click();
+      const simulated = await (await simulationResponse.catch(async e => {
+        await page.screenshot({ path: `${out}/stairs-failure-${width}.png`, fullPage: true });
+        console.error(await page.getByTestId("playground-error").allTextContents());
+        throw e;
+      })).json();
+      await page.waitForFunction(() => !document.querySelector('button[type="submit"]').disabled);
+      assert.equal(await page.getByTestId("playground-error").count(), 0);
+      assert.equal(simulated.contact.face, "tread:21");
+      await page.getByLabel("Simulation time", { exact: true }).focus();
+      await page.getByLabel("Simulation time", { exact: true }).press("End");
+      await page.waitForTimeout(300);
+      const position = JSON.parse(await canvas.getAttribute("data-particle"));
+      assert.ok(Math.abs(position[0] - simulated.contact.position.x) < 1e-8);
+      assert.ok(Math.abs(position[1] + 21) < 1e-8);
+      const sign = descent === "right" ? 1 : -1;
+      assert.ok(position[0]*sign >= 20 && position[0]*sign <= 21);
+      assert.match(await page.getByTestId("result").innerText(), /tread:21/);
+      const rendered = await canvas.evaluate(c => {
+        const copy = document.createElement("canvas"); copy.width=c.width; copy.height=c.height;
+        const ctx=copy.getContext("2d"); ctx.drawImage(c,0,0);
+        const data=ctx.getImageData(0,0,copy.width,copy.height).data;
+        const colors=new Set();
+        for(let i=0;i<data.length;i+=64) colors.add(`${data[i]},${data[i+1]},${data[i+2]}`);
+        const [x,y]=JSON.parse(c.dataset.particleScreen), r=c.getBoundingClientRect();
+        return { colors:colors.size, inFrame:x>=0 && y>=0 && x<=r.width && y<=r.height };
+      });
+      await page.screenshot({ path: `${out}/stairs-${descent}-${width}.png`, fullPage: true });
+      assert.ok(rendered.colors > 20 && rendered.inFrame, JSON.stringify(rendered));
+    }
     // Import is validated by the API and must not replace the last valid scene on failure.
     await page.getByLabel("Scene file", { exact: true }).setInputFiles({
       name: "bad.json", mimeType: "application/json", buffer: Buffer.from('{"schema_version":"unsupported"}'),
@@ -82,4 +118,4 @@ try {
   }
 } finally { await browser.close(); }
 await writeFile(`${out}/report.json`, JSON.stringify(results, null, 2));
-console.log(`PASS playground desktop/mobile rendering, motion, pause, scrub, vectors, mirroring and invalid import: ${out}`);
+console.log(`PASS playground desktop/mobile rendering, motion, pause, scrub, vectors, mirrored wedges/stairs, step contact and invalid import: ${out}`);

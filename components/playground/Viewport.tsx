@@ -17,19 +17,26 @@ function Label({ position, text, id, color }: { position: THREE.Vector3; text: s
 
 function Surface({ spec, active }: { spec: MeshSpec; active: boolean }) {
   const geometry = useMemo(() => {
-    if (spec.kind !== "wedge") return null;
+    if (spec.kind === "ground") return null;
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(spec.vertices.flat(), 3));
     g.setIndex(spec.triangles.flat());
     g.computeVertexNormals();
     return g;
   }, [spec]);
-  const edges = useMemo(() => geometry ? new THREE.EdgesGeometry(geometry) : null, [geometry]);
+  const edges = useMemo(() => {
+    if (spec.kind !== "ground" && spec.outline) {
+      const lines = new THREE.BufferGeometry();
+      lines.setAttribute("position", new THREE.Float32BufferAttribute(spec.outline.flat(), 3));
+      return lines;
+    }
+    return geometry ? new THREE.EdgesGeometry(geometry) : null;
+  }, [geometry, spec]);
   useEffect(() => () => { geometry?.dispose(); edges?.dispose(); }, [geometry, edges]);
   if (spec.kind === "ground") return <Line points={spec.segment.map(p => [p.x, p.y, 0])}
     color={active ? "#b87708" : "#637778"} lineWidth={3} />;
   return <group>
-    <mesh geometry={geometry!}><meshStandardMaterial color={active ? "#e8ba59" : "#9fbfba"} roughness={0.85} /></mesh>
+    <mesh geometry={geometry!}><meshStandardMaterial color={active ? "#e8ba59" : "#9fbfba"} roughness={0.85} flatShading /></mesh>
     <lineSegments geometry={edges!}><lineBasicMaterial color="#557c75" /></lineSegments>
   </group>;
 }
@@ -40,7 +47,7 @@ function World({ bundle, time, fit }: { bundle: Bundle; time: number; fit: numbe
   const { meshes, simulation, scene } = bundle;
   const current = sampleAt(simulation.samples, time);
   const bounds = useMemo(() => {
-    const points = meshes.flatMap(m => m.kind === "wedge"
+    const points = meshes.flatMap(m => m.kind !== "ground"
       ? m.vertices.map(v => new THREE.Vector3(...v))
       : m.segment.map(p => new THREE.Vector3(p.x, p.y, 0)));
     points.push(...simulation.samples.map(p => new THREE.Vector3(p.position.x, p.position.y, 0)));
@@ -91,8 +98,8 @@ function World({ bundle, time, fit }: { bundle: Bundle; time: number; fit: numbe
     {meshes.map(m => <Surface key={m.id} spec={m} active={scene.annotations.some(a => a.target === m.id && a.quantity === "highlight")} />)}
     <Line points={path.length > 1 ? path : [path[0], path[0]]} color="#c6cccb" lineWidth={1.5} />
     <Line points={travelled} color="#b77713" lineWidth={2.5} />
-    <mesh position={origin}><sphereGeometry args={[span*0.008, 24, 16]} />
-      <meshStandardMaterial color={annotations.some(a => a.quantity === "highlight") ? "#e8b333" : "#194d48"} /></mesh>
+    <mesh position={origin} renderOrder={20}><sphereGeometry args={[span*0.008, 24, 16]} />
+      <meshStandardMaterial depthTest={false} color={annotations.some(a => a.quantity === "highlight") ? "#e8b333" : "#194d48"} /></mesh>
     {vectors.map(v => {
       const direction = new THREE.Vector3(v.x, v.y, 0);
       const magnitude = direction.length();

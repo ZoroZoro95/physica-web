@@ -6,16 +6,21 @@ import { loadScene, playground, sampleAt, type Bundle, type Quantity, type Scene
 import styles from "./playground.module.css";
 
 const Viewport = dynamic(() => import("@/components/playground/Viewport"), { ssr: false });
-const initial = { surface: "wedge", slope: -30, width: 50, speed: 10, gravity: 10, direction: "surface_normal", angle: 45 };
+const initial = { surface: "wedge", slope: -30, width: 50, speed: 10, gravity: 10, direction: "surface_normal", angle: 45,
+  rise: 1, run: 1, count: 30, descent: "right" };
 
 async function buildScene(config: typeof initial) {
   const scene = await playground<Scene>("scenes", { gravity: config.gravity });
   const surface = config.surface === "wedge"
     ? { op: "add_wedge", id: "surface", width: config.width, angle_deg: config.slope, depth: 3 }
-    : { op: "add_surface", surface: { kind: "ground", id: "surface", x_min: 0, x_max: config.width } };
+    : config.surface === "staircase"
+      ? { op: "add_surface", surface: { kind: "staircase", id: "surface", rise: config.rise,
+          run: config.run, count: config.count, direction: config.descent, depth: 2 } }
+      : { op: "add_surface", surface: { kind: "ground", id: "surface", x_min: 0, x_max: config.width } };
   const changed = await playground<Scene>("scenes/apply", { scene, commands: [
     surface,
-    { op: "add_particle", id: "P", on_surface: { surface_id: "surface", fraction: 0.3 } },
+    { op: "add_particle", id: "P", ...(config.surface === "staircase"
+      ? { position: { x: 0, y: 0 } } : { on_surface: { surface_id: "surface", fraction: 0.3 } }) },
     { op: "set_launch", particle_id: "P", speed: config.speed, direction: config.direction,
       ...(config.direction === "angle" ? { angle_deg: config.angle } : { surface_id: "surface" }) },
   ] });
@@ -81,8 +86,8 @@ export default function Playground() {
     const a = document.createElement("a"); a.href = url; a.download = "playground-scene.json"; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  const number = (key: "slope" | "width" | "speed" | "gravity" | "angle", title: string, min: number, max: number) =>
-    <label>{title}<input aria-label={title} type="number" min={min} max={max} step="any" required value={config[key]}
+  const number = (key: "slope" | "width" | "speed" | "gravity" | "angle" | "rise" | "run" | "count", title: string, min: number, max: number) =>
+    <label>{title}<input aria-label={title} type="number" min={min} max={max} step={key === "count" ? 1 : "any"} required value={config[key]}
       onChange={e => setConfig({ ...config, [key]: e.target.value === "" ? "" as unknown as number : Number(e.target.value) })} /></label>;
 
   return <main className={styles.app}>
@@ -104,15 +109,24 @@ export default function Playground() {
       <aside className={styles.sidebar}>
         <form onSubmit={e => { e.preventDefault(); void replace(() => buildScene(config)); }}>
           <h1>Scene</h1>
-          <label>Surface<select value={config.surface} onChange={e => setConfig({ ...config, surface: e.target.value })}>
-            <option value="wedge">Wedge</option><option value="ground">Ground</option></select></label>
+          <label>Surface<select aria-label="Surface" value={config.surface} onChange={e => setConfig({ ...config, surface: e.target.value,
+            ...(e.target.value === "staircase" ? { direction: "angle", angle: config.descent === "right" ? 0 : 180 } : {}) })}>
+            <option value="wedge">Wedge</option><option value="ground">Ground</option><option value="staircase">Staircase</option></select></label>
           {config.surface === "wedge" && number("slope", "Slope (°)", -89, 89)}
-          {number("width", "Width (m)", 0.01, 1000)}
+          {config.surface === "staircase" ? <>
+            {number("rise", "Step height (m)", 0.01, 100)}
+            {number("run", "Step width (m)", 0.01, 100)}
+            {number("count", "Steps", 1, 128)}
+            <label>Descent<select aria-label="Descent" value={config.descent} onChange={e => setConfig({ ...config,
+              descent: e.target.value, angle: e.target.value === "right" ? 0 : 180 })}>
+              <option value="right">To the right</option><option value="left">To the left</option>
+            </select></label>
+          </> : number("width", "Width (m)", 0.01, 1000)}
           {number("gravity", "Gravity (m/s²)", 0.01, 100)}
           <h2>Launch</h2>
           {number("speed", "Speed (m/s)", 0, 1000)}
           <label>Direction<select value={config.direction} onChange={e => setConfig({ ...config, direction: e.target.value })}>
-            <option value="surface_normal">Normal to surface</option><option value="surface_tangent">Along surface</option><option value="angle">Angle from horizontal</option>
+            {config.surface !== "staircase" && <><option value="surface_normal">Normal to surface</option><option value="surface_tangent">Along surface</option></>}<option value="angle">Angle from horizontal</option>
           </select></label>
           {config.direction === "angle" && number("angle", "Launch angle (°)", -180, 180)}
           <button className={styles.primary} disabled={busy} type="submit">{busy ? "Calculating…" : "Build scene"}</button>

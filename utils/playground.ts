@@ -7,7 +7,7 @@ export type Scene = {
   annotations: { target: string; quantity: Quantity }[];
 };
 export type MeshSpec = { id: string } & (
-  { kind: "wedge"; vertices: [number, number, number][]; triangles: [number, number, number][] }
+  { kind: "wedge" | "staircase"; vertices: [number, number, number][]; triangles: [number, number, number][]; outline?: [number, number, number][] }
   | { kind: "ground"; segment: XY[] }
 );
 export type Sample = { t: number; position: XY; velocity: XY };
