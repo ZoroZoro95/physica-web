@@ -13,6 +13,12 @@ Available: ground, signed-angle wedges and mirrored stairs, a selected particle,
 play/pause, timeline, pan/zoom, fit view, labelled velocity components and gravity,
 JSON scene import/export. Import validation preserves the previous scene on error.
 
+Camera inspection: left drag or one-finger drag orbits, right drag pans, and
+wheel/pinch zooms. Two fingers pan and zoom. Fit view restores the default frame.
+Annotation toggles preserve the inspection angle. These controls are local to
+the playground; the student's teaching camera is unchanged. Physics remains XY
+even when the extruded geometry is inspected from another angle.
+
 This is an API inspection surface, not a replacement student workflow. AI tool
 calling, sliding constraints, multiple simultaneous trajectories,
 bounces, and production access control remain outside this increment.

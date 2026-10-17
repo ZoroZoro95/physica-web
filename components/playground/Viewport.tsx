@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, Line, OrbitControls } from "@react-three/drei";
 import type { OrbitControls as Controls } from "three-stdlib";
 import * as THREE from "three";
@@ -54,18 +54,20 @@ function World({ bundle, time, fit }: { bundle: Bundle; time: number; fit: numbe
     return new THREE.Box3().setFromPoints(points);
   }, [meshes, simulation]);
   const span = Math.max(bounds.max.x-bounds.min.x, bounds.max.y-bounds.min.y, 1);
+  const { x: minX, y: minY, z: minZ } = bounds.min;
+  const { x: maxX, y: maxY, z: maxZ } = bounds.max;
   const annotations = scene.annotations.filter(a => a.target === simulation.particle_id);
   const maxSpeed = useMemo(() => Math.max(1, ...simulation.samples.map(s => Math.hypot(s.velocity.x, s.velocity.y))), [simulation]);
   const origin = new THREE.Vector3(current.position.x, current.position.y, 0);
   useEffect(() => {
-    const center = bounds.getCenter(new THREE.Vector3());
+    const center = new THREE.Vector3((minX+maxX)/2, (minY+maxY)/2, (minZ+maxZ)/2);
     camera.position.copy(center).add(new THREE.Vector3(span*0.22, span*0.12, span*2));
     camera.lookAt(center);
     camera.near = 0.01;
     camera.far = span*10 + 100;
     camera.updateMatrixWorld(true);
-    const corners = [bounds.min.x, bounds.max.x].flatMap(x => [bounds.min.y, bounds.max.y].flatMap(y =>
-      [bounds.min.z, bounds.max.z].map(z => new THREE.Vector3(x,y,z).applyMatrix4(camera.matrixWorldInverse))));
+    const corners = [minX, maxX].flatMap(x => [minY, maxY].flatMap(y =>
+      [minZ, maxZ].map(z => new THREE.Vector3(x,y,z).applyMatrix4(camera.matrixWorldInverse))));
     const view = new THREE.Box3().setFromPoints(corners);
     const ortho = camera as THREE.OrthographicCamera;
     ortho.zoom = Math.min(size.width/Math.max(view.max.x-view.min.x, 1), size.height/Math.max(view.max.y-view.min.y, 1))*0.72;
@@ -73,13 +75,19 @@ function World({ bundle, time, fit }: { bundle: Bundle; time: number; fit: numbe
     controls.current?.target.copy(center);
     controls.current?.update();
     gl.domElement.dataset.framed = "true";
-  }, [bounds, camera, gl, size.width, size.height, span, fit]);
-  useEffect(() => {
+  }, [minX, minY, minZ, maxX, maxY, maxZ, camera, gl, size.width, size.height, span, fit]);
+  function recordView() {
     const projected = origin.clone().project(camera);
     gl.domElement.dataset.particle = JSON.stringify([current.position.x, current.position.y]);
     gl.domElement.dataset.particleScreen = JSON.stringify([(projected.x+1)*size.width/2, (1-projected.y)*size.height/2]);
     gl.domElement.dataset.time = String(current.t);
-  });
+    gl.domElement.dataset.camera = JSON.stringify({ position: camera.position.toArray(),
+      rotation: camera.quaternion.toArray(), zoom: (camera as THREE.OrthographicCamera).zoom,
+      target: controls.current?.target.toArray() });
+  }
+  // React state still changes when the canvas is offscreen and frames are paused.
+  useEffect(recordView);
+  useFrame(recordView);
   const path = simulation.samples.map(s => new THREE.Vector3(s.position.x, s.position.y, 0));
   const travelled = path.slice(0, Math.max(1, simulation.samples.findIndex(s => s.t >= time)));
   travelled.push(origin);
@@ -116,9 +124,9 @@ function World({ bundle, time, fit }: { bundle: Bundle; time: number; fit: numbe
       </group>;
     })}
     <SceneLabelLayout />
-    <OrbitControls ref={controls} enableRotate={false} enableDamping={false}
-      mouseButtons={{ LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }}
-      touches={{ ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN }} />
+    <OrbitControls ref={controls} enableRotate enableDamping={false}
+      mouseButtons={{ LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }}
+      touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }} />
   </>;
 }
 

@@ -15,6 +15,11 @@ try {
     await page.goto(`${base}/playground`);
     const canvas = page.locator("canvas[data-framed=true]");
     await canvas.waitFor();
+    // The first render can precede the camera-fit effect; sample the fitted frame.
+    await page.waitForFunction(() => {
+      const raw = document.querySelector("canvas")?.dataset.camera;
+      return raw && JSON.parse(raw).position[0] > 0;
+    });
     await page.getByRole("button", { name: "Play", exact: true }).waitFor();
     assert.match(await page.getByTestId("result").innerText(), /Contact.*2\.309/);
     const pixels = await canvas.evaluate(c => {
@@ -26,6 +31,47 @@ try {
       return colors.size;
     });
     assert.ok(pixels > 20, `blank canvas: ${pixels} colors`);
+    // Inspect the reverse side without changing the simulation, then pan/zoom/reset.
+    const cameraState = async () => JSON.parse(await canvas.getAttribute("data-camera"));
+    const initialCamera = await cameraState();
+    const physicsBeforeOrbit = await canvas.getAttribute("data-particle");
+    const box = await canvas.boundingBox();
+    const cx = box.x+box.width/2, cy = box.y+box.height/2;
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx+Math.min(box.width*.35, box.height*.35), cy, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    const orbited = await cameraState();
+    assert.notDeepEqual(orbited.rotation, initialCamera.rotation, "left drag did not orbit");
+    assert.equal(await canvas.getAttribute("data-particle"), physicsBeforeOrbit);
+    await page.screenshot({ path: `${out}/orbit-${width}.png`, fullPage: true });
+    await page.mouse.move(cx, cy);
+    await page.mouse.down({ button: "right" });
+    await page.mouse.move(cx+40, cy+20, { steps: 8 });
+    await page.mouse.up({ button: "right" });
+    await page.waitForTimeout(100);
+    const panned = await cameraState();
+    assert.notDeepEqual(panned.target, orbited.target, "right drag did not pan");
+    assert.ok(panned.rotation.every((v,i) => Math.abs(v-orbited.rotation[i])<1e-8));
+    await page.mouse.wheel(0, -200);
+    await page.waitForTimeout(150);
+    assert.ok((await cameraState()).zoom > panned.zoom, "wheel did not zoom");
+    // An annotation update must retain the user's inspection view.
+    const inspectionCamera = await cameraState();
+    await page.getByLabel("Velocity v", { exact: true }).click();
+    await page.waitForFunction(() => !document.querySelector('button[type="submit"]').disabled);
+    await page.waitForTimeout(150);
+    assert.deepEqual(await cameraState(), inspectionCamera, "annotations reset camera");
+    await page.getByLabel("Velocity v", { exact: true }).click();
+    await page.waitForFunction(() => !document.querySelector('button[type="submit"]').disabled);
+    await page.getByRole("button", { name: "Fit view", exact: true }).click();
+    await page.waitForTimeout(150);
+    const resetCamera = await cameraState();
+    for (const key of ["position", "rotation", "target"]) {
+      assert.ok(resetCamera[key].every((v,i) => Math.abs(v-initialCamera[key][i])<1e-8), `fit did not reset ${key}: ${JSON.stringify({ initialCamera, resetCamera })}`);
+    }
+    assert.ok(Math.abs(resetCamera.zoom-initialCamera.zoom)<1e-8);
     const start = await canvas.getAttribute("data-particle");
     await page.getByRole("button", { name: "Play", exact: true }).click();
     await page.waitForTimeout(500);
