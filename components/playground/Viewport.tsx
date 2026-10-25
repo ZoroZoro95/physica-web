@@ -70,7 +70,7 @@ function World({ bundle, time, fit }: { bundle: Bundle; time: number; fit: numbe
       : m.segment.map(p => new THREE.Vector3(p.x, p.y, 0)));
     points.push(...simulation.samples.map(p => new THREE.Vector3(p.position.x, p.position.y, 0)));
     // Frame the physical flight, not the artificial base of continuing stairs.
-    if (measurement && meshes.length === 1) {
+    if (measurement?.contact && meshes.length === 1) {
       const { surface, start, contact, sign } = measurement;
       return new THREE.Box3().setFromPoints([
         ...simulation.samples.map(p => new THREE.Vector3(p.position.x, p.position.y, 0)),
@@ -134,7 +134,7 @@ function World({ bundle, time, fit }: { bundle: Bundle; time: number; fit: numbe
     <Line points={path.length > 1 ? path : [path[0], path[0]]} color="#c6cccb" lineWidth={1.5} />
     <Line points={travelled} color="#b77713" lineWidth={2.5} />
     {measurement && (() => {
-      const { surface: s, sign, step, start, contact, drop, treadStart, treadEnd } = measurement;
+      const { surface: s, sign, step, start, contact, drop, faceStart, faceEnd, faceKind } = measurement;
       const z = s.depth / 2 + 0.03;
       const point = (x: number, y: number) => new THREE.Vector3(x, y, z);
       const offset = Math.max(s.run * 1.6, span * 0.055);
@@ -142,12 +142,14 @@ function World({ bundle, time, fit }: { bundle: Bundle; time: number; fit: numbe
       const firstY = s.origin.y - s.rise;
       const head = Math.min(s.run, s.rise) * 0.16;
       return <group>
+        {contact && drop !== null && <>
         <Dimension a={point(heightX, start.y)} b={point(heightX, contact.y)} head={head}
           label={`Drop = ${Number(drop.toFixed(3))} m`} id="stair-drop"
           labelAt={point(heightX - sign * offset * 0.45, (start.y + contact.y) / 2)} />
         {[start.y, contact.y].map(y => <Line key={y}
           points={[point(heightX, y), point(y === start.y ? start.x : contact.x, y)]}
           color="#8caaa9" lineWidth={1} dashed dashSize={span * 0.009} gapSize={span * 0.006} />)}
+        </>}
         <Dimension a={point(s.origin.x + sign * s.run * 1.5, s.origin.y)}
           b={point(s.origin.x + sign * s.run * 1.5, firstY)} head={head}
           label={`Step height = ${s.rise} m`} id="stair-rise"
@@ -162,10 +164,12 @@ function World({ bundle, time, fit }: { bundle: Bundle; time: number; fit: numbe
         {[s.origin.y, firstY].map(y => <Line key={y}
           points={[point(s.origin.x, y), point(s.origin.x + sign * s.run * 1.5, y)]}
           color="#8caaa9" lineWidth={1} dashed dashSize={span * 0.005} gapSize={span * 0.004} />)}
-        <Line points={[point(treadStart.x, treadStart.y), point(treadEnd.x, treadEnd.y)]}
+        {contact && faceStart && faceEnd && <>
+        <Line points={[point(faceStart.x, faceStart.y), point(faceEnd.x, faceEnd.y)]}
           color="#ae650b" lineWidth={3} depthTest={false} />
-        <Label position={point(treadEnd.x + sign * s.run * 0.6, contact.y)}
-          text={`Impact: step ${step}`} id="stair-impact" color="#915307" />
+        <Label position={point(faceEnd.x + sign * s.run * 0.6, contact.y)}
+          text={`Impact: step ${step}${faceKind === 'riser' ? ' (riser)' : ''}`} id="stair-impact" color="#915307" />
+        </>}
       </group>;
     })()}
     <mesh position={origin} renderOrder={20}><sphereGeometry args={[measurement ? Math.min(span*0.006, measurement.surface.run*0.1, measurement.surface.rise*0.1) : span*0.008, 24, 16]} />
