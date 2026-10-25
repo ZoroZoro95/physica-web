@@ -17,11 +17,16 @@ export type Simulation = {
   contact: null | { time: number; surface_id: string; face: string; position: XY; velocity: XY };
 };
 export type Bundle = { scene: Scene; meshes: MeshSpec[]; simulation: Simulation };
+export type Generation = {
+  status: "review" | "needs_clarification" | "unsupported" | "failed";
+  reason: string; assumptions: string[]; report_id: string;
+  scene: Scene | null; simulation: Simulation | null; meshes: MeshSpec[];
+};
 
-export async function playground<T>(path: string, body: unknown): Promise<T> {
+export async function playground<T>(path: string, body: unknown, timeout = 15000): Promise<T> {
   const response = await fetch(`/api/playground/v1/${path}`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body), signal: AbortSignal.timeout(15000),
+    body: JSON.stringify(body), signal: AbortSignal.timeout(timeout),
   });
   const data = await response.json().catch(() => null);
   if (!response.ok) {
@@ -33,13 +38,13 @@ export async function playground<T>(path: string, body: unknown): Promise<T> {
   return data as T;
 }
 
-export async function loadScene(input: unknown, particleId?: string): Promise<Bundle> {
+export async function loadScene(input: unknown, particleId?: string, maxTime = 30): Promise<Bundle> {
   const scene = await playground<Scene>("scenes/validate", input);
   const particle = scene.particles.find(p => p.id === particleId) ?? scene.particles[0];
   if (!particle) throw new Error("Add a particle before simulating this scene.");
   const geometry = await playground<{ meshes: MeshSpec[] }>("geometry", scene);
   const simulation = await playground<Simulation>("simulations", {
-    scene, particle_id: particle.id, samples: 501, max_time: 30,
+    scene, particle_id: particle.id, samples: 501, max_time: maxTime,
   });
   return { scene, meshes: geometry.meshes, simulation };
 }

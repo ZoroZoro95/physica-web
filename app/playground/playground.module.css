@@ -18,6 +18,15 @@
 .sidebar .check { display: flex; align-items: center; gap: 10px; color: #223637; }
 .check input { width: 16px; height: 16px; accent-color: #226e60; }
 .stage { min-width: 0; padding: 16px 24px 24px; }
+.questionForm { display: grid; gap: 10px; padding: 12px 0 18px; border-bottom: 1px solid #cedbd7; }
+.questionForm label { font-size: 15px; font-weight: 600; }
+.questionForm textarea { width: 100%; min-height: 90px; resize: vertical; padding: 12px; border: 1px solid #bcccca; border-radius: 5px; background: #fff; color: #223637; font: inherit; font-size: 15px; line-height: 1.5; }
+.questionForm .generate { justify-self: end; background: #226e60; border-color: #226e60; color: #fff; }
+.notice { padding: 14px 0; font-size: 14px; line-height: 1.5; border-bottom: 1px solid #cedbd7; overflow-wrap: anywhere; }
+.notice p { margin: 6px 0; }
+.notice summary { cursor: pointer; margin: 8px 0; }
+.notice ul { padding-left: 20px; list-style: disc; }
+.notice small { color: #556e6c; display: block; margin-top: 8px; }
 .sceneHeader { display: flex; justify-content: space-between; align-items: center; height: 48px; font-size: 14px; }
 .viewport { width: 100%; height: min(64dvh,700px); min-height: 330px; }
 .empty { display: grid; place-items: center; height: 100%; color: #647d7b; }

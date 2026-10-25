@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
-import { loadScene, playground, sampleAt, type Bundle, type Quantity, type Scene } from "@/utils/playground";
+import { loadScene, playground, sampleAt, type Bundle, type Generation, type Quantity, type Scene } from "@/utils/playground";
 import styles from "./playground.module.css";
 
 const Viewport = dynamic(() => import("@/components/playground/Viewport"), { ssr: false });
@@ -36,6 +36,9 @@ export default function Playground() {
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(1);
   const [fit, setFit] = useState(0);
+  const [question, setQuestion] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [generation, setGeneration] = useState<Generation | null>(null);
   const request = useRef(0);
   const file = useRef<HTMLInputElement>(null);
   const duration = bundle?.simulation.samples.at(-1)?.t ?? 0;
@@ -48,10 +51,33 @@ export default function Playground() {
       const result = await task();
       if (token !== request.current) return;
       setBundle(result);
+      if (reset) setGeneration(null);
       if (reset) { setTime(0); setFit(n => n+1); }
     } catch (e) {
       if (token === request.current) setError(e instanceof Error ? e.message : "Unable to load scene");
     } finally { if (token === request.current) setBusy(false); }
+  }
+  async function generateScene() {
+    if (busy || !question.trim()) return;
+    const token = ++request.current;
+    setBusy(true); setGenerating(true); setError(""); setPlaying(false);
+    setGeneration(null);
+    try {
+      const result = await playground<Generation>("generate", { question: question.trim() }, 90000);
+      if (token !== request.current) return;
+      setGeneration(result);
+      if (result.status === "review") {
+        const { scene, simulation, meshes } = result;
+        if (!scene || !simulation || !simulation.samples.length || simulation.scene_id !== scene.id || simulation.revision !== scene.revision) {
+          throw new Error("The generated scene and simulation do not match. The previous scene is unchanged.");
+        }
+        setBundle({ scene, simulation, meshes }); setTime(0); setFit(n => n+1);
+      }
+    } catch (e) {
+      if (token === request.current) { setGeneration(null); setError(e instanceof Error ? e.message : "Generation failed. The previous scene is unchanged."); }
+    } finally {
+      if (token === request.current) { setBusy(false); setGenerating(false); }
+    }
   }
   useEffect(() => {
     void replace(() => buildScene(initial));
@@ -77,7 +103,7 @@ export default function Playground() {
       const scene = await playground<Scene>("scenes/apply", { scene: bundle.scene, commands: [
         { op: "set_annotation", annotation: { target: bundle.simulation.particle_id, quantity }, visible },
       ] });
-      return loadScene(scene, bundle.simulation.particle_id);
+      return loadScene(scene, bundle.simulation.particle_id, duration || 30);
     }, false);
   }
   function download() {
@@ -107,8 +133,8 @@ export default function Playground() {
     </header>
     <div className={styles.workspace}>
       <aside className={styles.sidebar}>
-        <form onSubmit={e => { e.preventDefault(); void replace(() => buildScene(config)); }}>
-          <h1>Scene</h1>
+        <form onSubmit={e => { e.preventDefault(); if (!busy) void replace(() => buildScene(config)); }}>
+          <h1>New manual scene</h1>
           <label>Surface<select aria-label="Surface" value={config.surface} onChange={e => setConfig({ ...config, surface: e.target.value,
             ...(e.target.value === "staircase" ? { direction: "angle", angle: config.descent === "right" ? 0 : 180 } : {}) })}>
             <option value="wedge">Wedge</option><option value="ground">Ground</option><option value="staircase">Staircase</option></select></label>
@@ -129,7 +155,7 @@ export default function Playground() {
             {config.surface !== "staircase" && <><option value="surface_normal">Normal to surface</option><option value="surface_tangent">Along surface</option></>}<option value="angle">Angle from horizontal</option>
           </select></label>
           {config.direction === "angle" && number("angle", "Launch angle (°)", -180, 180)}
-          <button className={styles.primary} disabled={busy} type="submit">{busy ? "Calculating…" : "Build scene"}</button>
+          <button className={styles.primary} disabled={busy} type="submit">{busy && !generating ? "Calculating…" : "Build scene"}</button>
         </form>
         {bundle && <section className={styles.annotations}>
           <h2>Objects</h2>
@@ -145,6 +171,23 @@ export default function Playground() {
         </section>}
       </aside>
       <section className={styles.stage}>
+        <form className={styles.questionForm} onSubmit={e => { e.preventDefault(); void generateScene(); }}>
+          <label htmlFor="playground-question">Physics question</label>
+          <textarea id="playground-question" rows={3} maxLength={12000} required disabled={generating}
+            value={question} onChange={e => setQuestion(e.target.value)} />
+          <button className={styles.generate} type="submit" disabled={busy || !question.trim()}>
+            {generating ? "Generating scene…" : "Generate scene"}
+          </button>
+        </form>
+        {generating && <p role="status" className={styles.notice}>Generating a candidate. The previous scene remains visible.</p>}
+        {generation && <section role="status" className={styles.notice} data-testid="generation-result">
+          <strong>{generation.status === "review" ? "Review generated scene" : generation.status === "needs_clarification" ? "More information needed" : generation.status === "unsupported" ? "Unsupported physics" : "Generation failed"}</strong>
+          <p>{generation.reason}</p>
+          {generation.status !== "review" && <p>The previous scene is unchanged.</p>}
+          {generation.assumptions.length > 0 && <details><summary>Assumptions ({generation.assumptions.length})</summary>
+            <ul>{generation.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul></details>}
+          <small>Report: {generation.report_id}</small>
+        </section>}
         {error && <div role="alert" data-testid="playground-error" className={styles.error}>{error}</div>}
         <div className={styles.sceneHeader}><strong>{bundle ? `Particle ${bundle.simulation.particle_id}` : "Scene"}</strong>
           <button disabled={!bundle} onClick={() => setFit(n => n+1)}>Fit view</button></div>
