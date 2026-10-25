@@ -6,7 +6,7 @@ import { Html, Line, OrbitControls } from "@react-three/drei";
 import type { OrbitControls as Controls } from "three-stdlib";
 import * as THREE from "three";
 import SceneLabelLayout from "@/components/SceneLabelLayout";
-import { sampleAt, type Bundle, type MeshSpec } from "@/utils/playground";
+import { sampleAt, type Bundle, type MeshSpec, type ResolvedMeasurement } from "@/utils/playground";
 import { staircaseMeasurements } from "@/utils/playgroundMeasurements";
 
 function Dimension({ a, b, label, id, labelAt, head }: {
@@ -30,6 +30,51 @@ function Label({ position, text, id, color }: { position: THREE.Vector3; text: s
     data-audit-scene-label data-label-id={id} data-priority="10"
     style={{ display: "block", whiteSpace: "nowrap", font: "600 13px system-ui", color,
       background: "rgba(247,250,250,.94)", padding: "3px 5px", borderRadius: 3 }}>{text}</span></Html>;
+}
+
+function Measurement({ spec, span, z }: { spec: ResolvedMeasurement; span: number; z: number }) {
+  if (spec.status !== 'ready' || spec.value === null) return null;
+  const points = spec.points.map(p => new THREE.Vector3(p.x, p.y, z));
+  const text = `${spec.label} = ${Number(spec.value.toPrecision(5))}${spec.unit === 'deg' ? '°' : ' m'}`;
+  const id = `measurement-${spec.id}`;
+  if (spec.kind === 'angle') {
+    const [a, vertex, b] = points;
+    const from = Math.atan2(a.y-vertex.y, a.x-vertex.x);
+    const to = Math.atan2(b.y-vertex.y, b.x-vertex.x);
+    const sweep = Math.atan2(Math.sin(to-from), Math.cos(to-from));
+    const radius = Math.min(span * 0.09, a.distanceTo(vertex) * 0.4, b.distanceTo(vertex) * 0.4);
+    const arc = Array.from({ length: 33 }, (_, i) => vertex.clone().add(new THREE.Vector3(
+      radius * Math.cos(from+sweep*i/32), radius * Math.sin(from+sweep*i/32), 0)));
+    const middle = from+sweep/2;
+    return <group>
+      <Line points={arc} color="#496975" lineWidth={1.5} depthTest={false} />
+      <Line points={[a, vertex, b]} color="#8caaa9" lineWidth={1} dashed dashSize={span*.008} gapSize={span*.006} />
+      <Label position={vertex.clone().add(new THREE.Vector3((radius+span*.025)*Math.cos(middle),
+        (radius+span*.025)*Math.sin(middle), 0))} text={text} id={id} color="#294b58" />
+    </group>;
+  }
+  const [start, end] = points;
+  const offset = span * 0.055;
+  let a = start.clone(), b = end.clone();
+  if (spec.axis === 'vertical') {
+    const x = (spec.side === 1 ? Math.max(a.x, b.x) : Math.min(a.x, b.x)) + spec.side*offset;
+    a.x = b.x = x;
+  } else if (spec.axis === 'horizontal') {
+    const y = (spec.side === 1 ? Math.max(a.y, b.y) : Math.min(a.y, b.y)) + spec.side*offset;
+    a.y = b.y = y;
+  } else {
+    const d = end.clone().sub(start).normalize();
+    const shift = new THREE.Vector3(-d.y, d.x, 0).multiplyScalar(spec.side*offset);
+    a = a.add(shift); b = b.add(shift);
+  }
+  const length = a.distanceTo(b);
+  return <group>
+    {length > 1e-9 && <Dimension a={a} b={b} label={text} id={id}
+      labelAt={a.clone().lerp(b, 0.5)} head={Math.min(span*.009, length*.15)} />}
+    {length <= 1e-9 && <Label position={a} text={text} id={id} color="#294b58" />}
+    {[[start, a], [end, b]].map((line, i) => <Line key={i} points={line} color="#8caaa9"
+      lineWidth={1} dashed dashSize={span*.008} gapSize={span*.006} />)}
+  </group>;
 }
 
 function Surface({ spec, active }: { spec: MeshSpec; active: boolean }) {
@@ -58,7 +103,7 @@ function Surface({ spec, active }: { spec: MeshSpec; active: boolean }) {
   </group>;
 }
 
-function World({ bundle, time, fit }: { bundle: Bundle; time: number; fit: number }) {
+function World({ bundle, time, fit, showMeasurements = true }: { bundle: Bundle; time: number; fit: number; showMeasurements?: boolean }) {
   const { camera, size, gl } = useThree();
   const controls = useRef<Controls>(null);
   const { meshes, simulation, scene } = bundle;
@@ -69,11 +114,14 @@ function World({ bundle, time, fit }: { bundle: Bundle; time: number; fit: numbe
       ? m.vertices.map(v => new THREE.Vector3(...v))
       : m.segment.map(p => new THREE.Vector3(p.x, p.y, 0)));
     points.push(...simulation.samples.map(p => new THREE.Vector3(p.position.x, p.position.y, 0)));
+    const measuredPoints = (simulation.measurements ?? []).flatMap(m => m.points.map(p => new THREE.Vector3(p.x, p.y, 0)));
+    points.push(...measuredPoints);
     // Frame the physical flight, not the artificial base of continuing stairs.
     if (measurement?.contact && meshes.length === 1) {
       const { surface, start, contact, sign } = measurement;
       return new THREE.Box3().setFromPoints([
         ...simulation.samples.map(p => new THREE.Vector3(p.position.x, p.position.y, 0)),
+        ...measuredPoints,
         new THREE.Vector3(surface.origin.x - sign * surface.run * 3, start.y + surface.rise * 2, -surface.depth / 2),
         new THREE.Vector3(contact.x + sign * surface.run * 3, contact.y - surface.rise * 2, surface.depth / 2),
       ]);
@@ -133,37 +181,12 @@ function World({ bundle, time, fit }: { bundle: Bundle; time: number; fit: numbe
     {meshes.map(m => <Surface key={m.id} spec={m} active={scene.annotations.some(a => a.target === m.id && a.quantity === "highlight")} />)}
     <Line points={path.length > 1 ? path : [path[0], path[0]]} color="#c6cccb" lineWidth={1.5} />
     <Line points={travelled} color="#b77713" lineWidth={2.5} />
+    {showMeasurements && (simulation.measurements ?? []).map(spec => <Measurement key={spec.id} spec={spec} span={span} z={maxZ+0.03} />)}
     {measurement && (() => {
-      const { surface: s, sign, step, start, contact, drop, faceStart, faceEnd, faceKind } = measurement;
+      const { surface: s, sign, step, contact, faceStart, faceEnd, faceKind } = measurement;
       const z = s.depth / 2 + 0.03;
       const point = (x: number, y: number) => new THREE.Vector3(x, y, z);
-      const offset = Math.max(s.run * 1.6, span * 0.055);
-      const heightX = s.origin.x - sign * offset;
-      const firstY = s.origin.y - s.rise;
-      const head = Math.min(s.run, s.rise) * 0.16;
       return <group>
-        {contact && drop !== null && <>
-        <Dimension a={point(heightX, start.y)} b={point(heightX, contact.y)} head={head}
-          label={`Drop = ${Number(drop.toFixed(3))} m`} id="stair-drop"
-          labelAt={point(heightX - sign * offset * 0.45, (start.y + contact.y) / 2)} />
-        {[start.y, contact.y].map(y => <Line key={y}
-          points={[point(heightX, y), point(y === start.y ? start.x : contact.x, y)]}
-          color="#8caaa9" lineWidth={1} dashed dashSize={span * 0.009} gapSize={span * 0.006} />)}
-        </>}
-        <Dimension a={point(s.origin.x + sign * s.run * 1.5, s.origin.y)}
-          b={point(s.origin.x + sign * s.run * 1.5, firstY)} head={head}
-          label={`Step height = ${s.rise} m`} id="stair-rise"
-          labelAt={point(s.origin.x + sign * s.run * 2, firstY)} />
-        <Dimension a={point(s.origin.x, s.origin.y + s.rise)}
-          b={point(s.origin.x + sign * s.run, s.origin.y + s.rise)} head={head}
-          label={`Step width = ${s.run} m`} id="stair-run"
-          labelAt={point(s.origin.x, s.origin.y + s.rise * 2)} />
-        {[s.origin.x, s.origin.x + sign * s.run].map(x => <Line key={x}
-          points={[point(x, firstY), point(x, s.origin.y + s.rise)]}
-          color="#8caaa9" lineWidth={1} dashed dashSize={span * 0.005} gapSize={span * 0.004} />)}
-        {[s.origin.y, firstY].map(y => <Line key={y}
-          points={[point(s.origin.x, y), point(s.origin.x + sign * s.run * 1.5, y)]}
-          color="#8caaa9" lineWidth={1} dashed dashSize={span * 0.005} gapSize={span * 0.004} />)}
         {contact && faceStart && faceEnd && <>
         <Line points={[point(faceStart.x, faceStart.y), point(faceEnd.x, faceEnd.y)]}
           color="#ae650b" lineWidth={3} depthTest={false} />
@@ -196,7 +219,7 @@ function World({ bundle, time, fit }: { bundle: Bundle; time: number; fit: numbe
   </>;
 }
 
-export default function Viewport(props: { bundle: Bundle; time: number; fit: number }) {
+export default function Viewport(props: { bundle: Bundle; time: number; fit: number; showMeasurements?: boolean }) {
   return <div data-audit-surface="animation-scene-3d" style={{ width: "100%", height: "100%", position: "relative" }}>
     <Canvas orthographic camera={{ position: [0,0,100], zoom: 8 }} dpr={[1,2]}
       gl={{ preserveDrawingBuffer: true }} fallback={<p>WebGL is unavailable in this browser.</p>}>

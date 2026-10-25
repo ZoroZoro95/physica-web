@@ -102,7 +102,7 @@ try {
       if (document.documentElement.scrollWidth > innerWidth+1) failures.push("page overflow");
       return { failures, labels: labels.length, time: Number(c.dataset.time) };
     });
-    assert.equal(checks.labels, 4);
+    assert.equal(checks.labels, 6); // Four vectors plus height and slope measurements.
     assert.deepEqual(checks.failures, []);
     assert.ok(Math.abs(checks.time-2.30940107676) < 1e-6);
     await page.screenshot({ path: `${out}/wedge-${width}.png`, fullPage: true });

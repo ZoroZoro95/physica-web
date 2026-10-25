@@ -17,12 +17,25 @@ async function buildScene(config: typeof initial) {
       ? { op: "add_surface", surface: { kind: "staircase", id: "surface", rise: config.rise,
           run: config.run, count: config.count, direction: config.descent, depth: 2 } }
       : { op: "add_surface", surface: { kind: "ground", id: "surface", x_min: 0, x_max: config.width } };
+  const anchor = (feature: string) => ({ kind: 'object', target: 'surface', feature });
+  const measurements = config.surface === 'wedge' ? [
+    { op: 'set_measurement', measurement: { kind: 'distance', id: 'height', label: 'Height', axis: 'vertical',
+      start: anchor(config.slope > 0 ? 'base_end' : 'base_start'), end: anchor(config.slope > 0 ? 'top_end' : 'top_start'),
+      side: config.slope > 0 ? 1 : -1 } },
+    { op: 'set_measurement', measurement: { kind: 'angle', id: 'slope', label: 'Slope',
+      start: anchor(config.slope > 0 ? 'base_end' : 'base_start'),
+      vertex: anchor(config.slope > 0 ? 'top_start' : 'top_end'), end: anchor(config.slope > 0 ? 'top_end' : 'top_start') } },
+  ] : config.surface === 'ground' ? [
+    { op: 'set_measurement', measurement: { kind: 'distance', id: 'range', label: 'Range', axis: 'horizontal', side: -1,
+      start: { kind: 'object', target: 'P', feature: 'launch' }, end: { kind: 'object', target: 'P', feature: 'contact' } } },
+  ] : [];
   const changed = await playground<Scene>("scenes/apply", { scene, commands: [
     surface,
     { op: "add_particle", id: "P", ...(config.surface === "staircase"
       ? { position: { x: 0, y: 0 } } : { on_surface: { surface_id: "surface", fraction: 0.3 } }) },
     { op: "set_launch", particle_id: "P", speed: config.speed, direction: config.direction,
       ...(config.direction === "angle" ? { angle_deg: config.angle } : { surface_id: "surface" }) },
+    ...measurements,
   ] });
   return loadScene(changed);
 }
@@ -36,6 +49,7 @@ export default function Playground() {
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(1);
   const [fit, setFit] = useState(0);
+  const [showMeasurements, setShowMeasurements] = useState(true);
   const [question, setQuestion] = useState("");
   const [generating, setGenerating] = useState(false);
   const [generation, setGeneration] = useState<Generation | null>(null);
@@ -168,6 +182,11 @@ export default function Playground() {
             <label className={styles.check} key={q}><input type="checkbox" disabled={busy}
               checked={bundle.scene.annotations.some(a => a.target === bundle.simulation.particle_id && a.quantity === q)}
               onChange={e => annotate(q, e.target.checked)} />{title}</label>)}
+          <h2>Measurements</h2>
+          <label className={styles.check}><input type="checkbox" checked={showMeasurements}
+            onChange={e => setShowMeasurements(e.target.checked)} />Dimensions and angles</label>
+          {(bundle.simulation.measurements ?? []).filter(m => m.status === 'unavailable').map(m =>
+            <p key={m.id}>{m.label}: {m.reason}</p>)}
         </section>}
       </aside>
       <section className={styles.stage}>
@@ -192,7 +211,7 @@ export default function Playground() {
         <div className={styles.sceneHeader}><strong>{bundle ? `Particle ${bundle.simulation.particle_id}` : "Scene"}</strong>
           <button disabled={!bundle} onClick={() => setFit(n => n+1)}>Fit view</button></div>
         <div className={styles.viewport} data-testid="playground-viewport">
-          {bundle ? <Viewport bundle={bundle} time={time} fit={fit} /> : <div className={styles.empty}>{busy ? "Loading scene…" : "No scene loaded"}</div>}
+          {bundle ? <Viewport bundle={bundle} time={time} fit={fit} showMeasurements={showMeasurements} /> : <div className={styles.empty}>{busy ? "Loading scene…" : "No scene loaded"}</div>}
         </div>
         <div className={styles.transport}>
           <button disabled={!bundle || busy || duration === 0} onClick={() => {

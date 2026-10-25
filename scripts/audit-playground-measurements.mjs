@@ -63,7 +63,7 @@ try {
         await page.getByText(text, { exact: true }).waitFor();
       }
       if (!testCase.face) {
-        assert.equal(await page.locator('[data-label-id="stair-drop"]').count(), 0);
+        assert.equal(await page.locator('[data-label-id="measurement-flight_drop"]').count(), 0);
         assert.equal(await page.locator('[data-label-id="stair-impact"]').count(), 0);
       }
       const boxes = await page.locator('[data-audit-scene-label]').evaluateAll(elements => elements.map(e => {

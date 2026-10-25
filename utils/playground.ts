@@ -5,6 +5,12 @@ export type Scene = {
   surfaces: unknown[];
   particles: { id: string; position: XY; velocity: XY; launch_set: boolean }[];
   annotations: { target: string; quantity: Quantity }[];
+  measurements?: unknown[] | null;
+};
+export type ResolvedMeasurement = {
+  id: string; label: string; kind: 'distance' | 'angle'; status: 'ready' | 'unavailable';
+  points: XY[]; value: number | null; unit: 'm' | 'deg';
+  axis: 'horizontal' | 'vertical' | 'direct'; side: -1 | 1; reason: string | null;
 };
 export type MeshSpec = { id: string } & (
   { kind: "wedge" | "staircase"; vertices: [number, number, number][]; triangles: [number, number, number][]; outline?: [number, number, number][] }
@@ -15,6 +21,7 @@ export type Simulation = {
   scene_id: string; revision: number; particle_id: string; status: "contact" | "time_limit";
   samples: Sample[];
   contact: null | { time: number; surface_id: string; face: string; position: XY; velocity: XY };
+  measurements?: ResolvedMeasurement[];
 };
 export type Bundle = { scene: Scene; meshes: MeshSpec[]; simulation: Simulation };
 export type Generation = {
