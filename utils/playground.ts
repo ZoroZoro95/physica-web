@@ -20,10 +20,20 @@ export type Sample = { t: number; position: XY; velocity: XY };
 export type Simulation = {
   scene_id: string; revision: number; particle_id: string; status: "contact" | "time_limit";
   samples: Sample[];
-  contact: null | { time: number; surface_id: string; face: string; position: XY; velocity: XY };
+  contact: null | { time: number; surface_id: string; face: string; position: XY; velocity: XY;
+    touching_faces?: { surface_id: string; face: string }[] };
   measurements?: ResolvedMeasurement[];
 };
 export type Bundle = { scene: Scene; meshes: MeshSpec[]; simulation: Simulation };
+
+export function contactDescription(contact: NonNullable<Simulation['contact']>) {
+  const faces = contact.touching_faces ?? [];
+  if (faces.length > 1) {
+    const sameSurface = faces.every(f => f.surface_id === contact.surface_id);
+    return `${sameSurface ? 'Corner' : 'Shared contact'} · ${sameSurface ? `${contact.surface_id} / ` : ''}${faces.map(f => sameSurface ? f.face : `${f.surface_id}/${f.face}`).join(' + ')}`;
+  }
+  return `Contact · ${contact.surface_id} / ${contact.face}`;
+}
 export type Generation = {
   status: "review" | "needs_clarification" | "unsupported" | "failed";
   reason: string; assumptions: string[]; report_id: string;

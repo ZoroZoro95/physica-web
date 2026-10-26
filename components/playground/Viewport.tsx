@@ -110,9 +110,18 @@ function World({ bundle, time, fit, showMeasurements = true }: { bundle: Bundle;
   const measurement = useMemo(() => staircaseMeasurements(bundle), [bundle]);
   const current = sampleAt(simulation.samples, time);
   const bounds = useMemo(() => {
+    const flight = new THREE.Box3().setFromPoints(simulation.samples.map(p => new THREE.Vector3(p.position.x, p.position.y, 0)));
+    const padding = Math.max(flight.max.x-flight.min.x, flight.max.y-flight.min.y, 1)*0.15;
     const points = meshes.flatMap(m => m.kind !== "ground"
       ? m.vertices.map(v => new THREE.Vector3(...v))
-      : m.segment.map(p => new THREE.Vector3(p.x, p.y, 0)));
+      : (() => {
+        // A large ground extent controls collision, not the teaching viewport.
+        // Keep finite edges when they fall within the flight's horizontal window.
+        const lo = Math.max(Math.min(...m.segment.map(p => p.x)), flight.min.x-padding);
+        const hi = Math.min(Math.max(...m.segment.map(p => p.x)), flight.max.x+padding);
+        return lo <= hi ? [new THREE.Vector3(lo, m.segment[0].y, 0), new THREE.Vector3(hi, m.segment[0].y, 0)]
+          : m.segment.map(p => new THREE.Vector3(p.x, p.y, 0));
+      })());
     points.push(...simulation.samples.map(p => new THREE.Vector3(p.position.x, p.position.y, 0)));
     const measuredPoints = (simulation.measurements ?? []).flatMap(m => m.points.map(p => new THREE.Vector3(p.x, p.y, 0)));
     points.push(...measuredPoints);
@@ -156,6 +165,7 @@ function World({ bundle, time, fit, showMeasurements = true }: { bundle: Bundle;
     gl.domElement.dataset.particle = JSON.stringify([current.position.x, current.position.y]);
     gl.domElement.dataset.particleScreen = JSON.stringify([(projected.x+1)*size.width/2, (1-projected.y)*size.height/2]);
     gl.domElement.dataset.time = String(current.t);
+    gl.domElement.dataset.trailPoints = String(travelled.length);
     gl.domElement.dataset.camera = JSON.stringify({ position: camera.position.toArray(),
       rotation: camera.quaternion.toArray(), zoom: (camera as THREE.OrthographicCamera).zoom,
       target: controls.current?.target.toArray() });
@@ -164,7 +174,8 @@ function World({ bundle, time, fit, showMeasurements = true }: { bundle: Bundle;
   useEffect(recordView);
   useFrame(recordView);
   const path = simulation.samples.map(s => new THREE.Vector3(s.position.x, s.position.y, 0));
-  const travelled = path.slice(0, Math.max(1, simulation.samples.findIndex(s => s.t >= time)));
+  const nextSample = simulation.samples.findIndex(s => s.t > time);
+  const travelled = path.slice(0, nextSample === -1 ? path.length : Math.max(1, nextSample));
   travelled.push(origin);
   const vectors = annotations.flatMap(a => {
     if (a.quantity === "highlight") return [];
@@ -183,7 +194,7 @@ function World({ bundle, time, fit, showMeasurements = true }: { bundle: Bundle;
     <Line points={travelled} color="#b77713" lineWidth={2.5} />
     {showMeasurements && (simulation.measurements ?? []).map(spec => <Measurement key={spec.id} spec={spec} span={span} z={maxZ+0.03} />)}
     {measurement && (() => {
-      const { surface: s, sign, step, contact, faceStart, faceEnd, faceKind } = measurement;
+      const { surface: s, sign, step, contact, faceStart, faceEnd, faceKind, corner } = measurement;
       const z = s.depth / 2 + 0.03;
       const point = (x: number, y: number) => new THREE.Vector3(x, y, z);
       return <group>
@@ -191,7 +202,7 @@ function World({ bundle, time, fit, showMeasurements = true }: { bundle: Bundle;
         <Line points={[point(faceStart.x, faceStart.y), point(faceEnd.x, faceEnd.y)]}
           color="#ae650b" lineWidth={3} depthTest={false} />
         <Label position={point(faceEnd.x + sign * s.run * 0.6, contact.y)}
-          text={`Impact: step ${step}${faceKind === 'riser' ? ' (riser)' : ''}`} id="stair-impact" color="#915307" />
+          text={`Impact: step ${step}${corner ? ' (corner)' : faceKind === 'riser' ? ' (riser)' : ''}`} id="stair-impact" color="#915307" />
         </>}
       </group>;
     })()}

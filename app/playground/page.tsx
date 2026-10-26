@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
-import { loadScene, playground, sampleAt, type Bundle, type Generation, type Quantity, type Scene } from "@/utils/playground";
+import { contactDescription, loadScene, playground, sampleAt, type Bundle, type Generation, type Quantity, type Scene } from "@/utils/playground";
 import styles from "./playground.module.css";
 
 const Viewport = dynamic(() => import("@/components/playground/Viewport"), { ssr: false });
@@ -230,7 +230,7 @@ export default function Playground() {
             <div key={name}><dt>{name}</dt><dd>{Number(value).toFixed(2)} <small>{unit}</small></dd></div>)}
         </dl>
         {bundle && <footer className={styles.result} data-testid="result">
-          {bundle.simulation.contact ? `Contact · ${bundle.simulation.contact.surface_id} / ${bundle.simulation.contact.face} · ${bundle.simulation.contact.time.toFixed(3)} s`
+          {bundle.simulation.contact ? `${contactDescription(bundle.simulation.contact)} · ${bundle.simulation.contact.time.toFixed(3)} s`
             : `No surface contact within ${duration.toFixed(1)} s`}
         </footer>}
       </section>

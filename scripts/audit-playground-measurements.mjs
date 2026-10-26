@@ -16,7 +16,7 @@ const browser = await chromium.launch({ headless: true });
 try {
   for (const testCase of [
     { name: 'tread', gravity: 9.8, maxTime: 3, face: 'tread:21', drop: 21 },
-    { name: 'riser', gravity: 10, maxTime: 3, face: 'riser:21', drop: 20 },
+    { name: 'corner', gravity: 10, maxTime: 3, face: 'tread:20', drop: 20 },
     { name: 'no-contact', gravity: 10, maxTime: 0.5, face: null, drop: null },
   ]) for (const direction of ['right', 'left']) {
     let scene = await api('scenes', { gravity: testCase.gravity });
@@ -28,11 +28,9 @@ try {
     ] });
     const simulation = await api('simulations', { scene, particle_id: 'P', max_time: testCase.maxTime, samples: 121 });
     const { meshes } = await api('geometry', scene);
-    // At (20, -20), tread 20 and riser 21 share an endpoint. Mirroring
-    // through 180 degrees can change the tie via floating-point roundoff.
-    if (testCase.name === 'riser') {
-      assert.ok(['riser:21', 'tread:20'].includes(simulation.contact?.face));
-    } else assert.equal(simulation.contact?.face ?? null, testCase.face);
+    assert.equal(simulation.contact?.face ?? null, testCase.face);
+    if (testCase.name === 'corner') assert.deepEqual(simulation.contact.touching_faces,
+      [{surface_id:'stairs',face:'tread:20'}, {surface_id:'stairs',face:'riser:21'}]);
     const [faceKind, step] = (simulation.contact?.face ?? '').split(':');
     for (const width of [1440, 390]) {
       const page = await browser.newPage({ viewport: { width, height: 950 } });
@@ -58,7 +56,7 @@ try {
       assert.ok(Math.abs(actual[0] - expected.x) < 1e-8);
       assert.ok(Math.abs(actual[1] - expected.y) < 1e-8);
       for (const text of ['Step height = 1 m', 'Step width = 1 m', ...(testCase.face ? [
-        `Drop = ${testCase.drop} m`, `Impact: step ${step}${faceKind === 'riser' ? ' (riser)' : ''}`,
+        `Drop = ${testCase.drop} m`, `Impact: step ${step}${testCase.name === 'corner' ? ' (corner)' : faceKind === 'riser' ? ' (riser)' : ''}`,
       ] : [])]) {
         await page.getByText(text, { exact: true }).waitFor();
       }
