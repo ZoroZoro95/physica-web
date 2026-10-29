@@ -28,6 +28,10 @@
 .notice ul { padding-left: 20px; list-style: disc; }
 .notice small { color: #556e6c; display: block; margin-top: 8px; }
 .sceneHeader { display: flex; justify-content: space-between; align-items: center; height: 48px; font-size: 14px; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 10px 0; font-size: 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend > span:first-child { flex-basis: 100%; color: #556e6c; }
+.legend i { width: 9px; height: 9px; border-radius: 50%; }
 .viewport { width: 100%; height: min(64dvh,700px); min-height: 330px; }
 .empty { display: grid; place-items: center; height: 100%; color: #647d7b; }
 .transport { display: flex; align-items: center; gap: 10px; border-top: 1px solid #cedbd7; padding: 14px 0; }

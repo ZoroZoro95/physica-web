@@ -103,6 +103,10 @@ try {
       return { failures, labels: labels.length, time: Number(c.dataset.time) };
     });
     assert.equal(checks.labels, 6); // Four vectors plus height and slope measurements.
+    if (checks.failures.length) {
+      await page.screenshot({ path: `${out}/labels-failure-${width}.png`, fullPage: true });
+      console.error(JSON.stringify({ width, checks }));
+    }
     assert.deepEqual(checks.failures, []);
     assert.ok(Math.abs(checks.time-2.30940107676) < 1e-6);
     await page.screenshot({ path: `${out}/wedge-${width}.png`, fullPage: true });

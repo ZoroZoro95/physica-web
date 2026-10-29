@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
-import { contactDescription, loadScene, playground, sampleAt, type Bundle, type Generation, type Quantity, type Scene } from "@/utils/playground";
+import { contactDescription, loadScene, playground, sampleAt, particleColor, trackStatus, type Bundle, type Generation, type Quantity, type Scene } from "@/utils/playground";
 import styles from "./playground.module.css";
 
 const Viewport = dynamic(() => import("@/components/playground/Viewport"), { ssr: false });
@@ -53,9 +53,10 @@ export default function Playground() {
   const [question, setQuestion] = useState("");
   const [generating, setGenerating] = useState(false);
   const [generation, setGeneration] = useState<Generation | null>(null);
+  const [extra, setExtra] = useState({ x: 0, y: 40, speed: 10, angle: 30 });
   const request = useRef(0);
   const file = useRef<HTMLInputElement>(null);
-  const duration = bundle?.simulation.samples.at(-1)?.t ?? 0;
+  const duration = bundle?.duration ?? bundle?.simulation.samples.at(-1)?.t ?? 0;
   const current = bundle ? sampleAt(bundle.simulation.samples, time) : null;
 
   async function replace(task: () => Promise<Bundle>, reset = true) {
@@ -117,8 +118,22 @@ export default function Playground() {
       const scene = await playground<Scene>("scenes/apply", { scene: bundle.scene, commands: [
         { op: "set_annotation", annotation: { target: bundle.simulation.particle_id, quantity }, visible },
       ] });
-      return loadScene(scene, bundle.simulation.particle_id, duration || 30);
+      return loadScene(scene, bundle.simulation.particle_id, bundle.maxTime ?? (duration || 30));
     }, false);
+  }
+  function addParticle() {
+    if (!bundle || busy) return;
+    void replace(async () => {
+      const ids = new Set([...bundle.scene.particles, ...bundle.meshes].map(p => p.id));
+      let n = 2;
+      while (ids.has(`P${n}`)) n++;
+      const id = `P${n}`;
+      const scene = await playground<Scene>('scenes/apply', { scene: bundle.scene, commands: [
+        { op: 'add_particle', id, position: { x: extra.x, y: extra.y } },
+        { op: 'set_launch', particle_id: id, speed: extra.speed, direction: 'angle', angle_deg: extra.angle },
+      ] });
+      return loadScene(scene, id, bundle.maxTime ?? (duration || 30));
+    });
   }
   function download() {
     if (!bundle) return;
@@ -174,7 +189,10 @@ export default function Playground() {
         {bundle && <section className={styles.annotations}>
           <h2>Objects</h2>
           <label>Particle<select aria-label="Particle" value={bundle.simulation.particle_id} disabled={busy}
-            onChange={e => void replace(() => loadScene(bundle.scene, e.target.value))}>
+            onChange={e => {
+              const selected = bundle.tracks?.find(t => t.particle_id === e.target.value);
+              if (selected) setBundle({ ...bundle, simulation: selected });
+            }}>
             {bundle.scene.particles.map(p => <option key={p.id}>{p.id}</option>)}
           </select></label>
           <h2>Vectors</h2>
@@ -188,6 +206,17 @@ export default function Playground() {
           {(bundle.simulation.measurements ?? []).filter(m => m.status === 'unavailable').map(m =>
             <p key={m.id}>{m.label}: {m.reason}</p>)}
         </section>}
+        {bundle && <form onSubmit={e => { e.preventDefault(); addParticle(); }}>
+          <h2>Add particle</h2>
+          {([['x', 'Initial x (m)'], ['y', 'Initial y (m)'], ['speed', 'New speed (m/s)'], ['angle', 'New angle (°)']] as const).map(([key, title]) =>
+            <label key={key}>{title}<input type="number" aria-label={title} step="any" required
+              min={key === 'speed' ? 0 : key === 'angle' ? -360 : -100000}
+              max={key === 'speed' ? 10000 : key === 'angle' ? 360 : 100000}
+              value={extra[key]} onChange={e => setExtra({ ...extra, [key]: e.target.value === '' ? '' as unknown as number : Number(e.target.value) })} /></label>)}
+          <button className={styles.primary} disabled={busy || bundle.scene.particles.length >= 16} type="submit">
+            Add particle
+          </button>
+        </form>}
       </aside>
       <section className={styles.stage}>
         <form className={styles.questionForm} onSubmit={e => { e.preventDefault(); void generateScene(); }}>
@@ -213,6 +242,12 @@ export default function Playground() {
         <div className={styles.viewport} data-testid="playground-viewport">
           {bundle ? <Viewport bundle={bundle} time={time} fit={fit} showMeasurements={showMeasurements} /> : <div className={styles.empty}>{busy ? "Loading scene…" : "No scene loaded"}</div>}
         </div>
+        {bundle?.tracks && <div className={styles.legend} aria-label="Particle states">
+          <span>Independent flights · simultaneous launch · no body collisions</span>
+          {bundle.tracks.map((track, index) => <span key={track.particle_id} data-testid={`state-${track.particle_id}`}>
+            <i style={{ background: particleColor(index) }} />{track.particle_id}: {trackStatus(track, time)}
+          </span>)}
+        </div>}
         <div className={styles.transport}>
           <button disabled={!bundle || busy || duration === 0} onClick={() => {
             if (time >= duration) setTime(0); setPlaying(p => !p);
@@ -229,6 +264,8 @@ export default function Playground() {
           {current && [["x", current.position.x, "m"], ["y", current.position.y, "m"], ["vₓ", current.velocity.x, "m/s"], ["vᵧ", current.velocity.y, "m/s"]].map(([name,value,unit]) =>
             <div key={name}><dt>{name}</dt><dd>{Number(value).toFixed(2)} <small>{unit}</small></dd></div>)}
         </dl>
+        {bundle?.tracks && bundle.simulation.contact && time >= bundle.simulation.contact.time &&
+          <p className={styles.result}>Impact marker. Velocity readouts are at first contact; post-impact motion is not simulated.</p>}
         {bundle && <footer className={styles.result} data-testid="result">
           {bundle.simulation.contact ? `${contactDescription(bundle.simulation.contact)} · ${bundle.simulation.contact.time.toFixed(3)} s`
             : `No surface contact within ${duration.toFixed(1)} s`}

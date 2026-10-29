@@ -6,7 +6,7 @@ import { Html, Line, OrbitControls } from "@react-three/drei";
 import type { OrbitControls as Controls } from "three-stdlib";
 import * as THREE from "three";
 import SceneLabelLayout from "@/components/SceneLabelLayout";
-import { sampleAt, type Bundle, type MeshSpec, type ResolvedMeasurement } from "@/utils/playground";
+import { sampleAt, particleColor, trackStatus, type Bundle, type MeshSpec, type ResolvedMeasurement, type Simulation, type Scene } from "@/utils/playground";
 import { staircaseMeasurements } from "@/utils/playgroundMeasurements";
 
 function Dimension({ a, b, label, id, labelAt, head }: {
@@ -103,14 +103,64 @@ function Surface({ spec, active }: { spec: MeshSpec; active: boolean }) {
   </group>;
 }
 
+function ParticleTrack({ simulation, scene, time, span, radius, index, multiple }: {
+  simulation: Simulation; scene: Scene; time: number; span: number; radius: number; index: number; multiple: boolean;
+}) {
+  const current = sampleAt(simulation.samples, time);
+  const origin = new THREE.Vector3(current.position.x, current.position.y, 0);
+  const path = simulation.samples.map(s => new THREE.Vector3(s.position.x, s.position.y, 0));
+  const next = simulation.samples.findIndex(s => s.t > time);
+  const travelled = path.slice(0, next === -1 ? path.length : Math.max(1, next));
+  travelled.push(origin);
+  const annotations = scene.annotations.filter(a => a.target === simulation.particle_id);
+  const maxSpeed = Math.max(1, ...simulation.samples.map(s => Math.hypot(s.velocity.x, s.velocity.y)));
+  const ended = !!simulation.contact && time > simulation.contact.time;
+  const color = multiple ? particleColor(index) : '#194d48';
+  const vectors = annotations.flatMap(a => {
+    if (a.quantity === 'highlight' || (multiple && ended)) return [];
+    const values = {
+      velocity: { x: current.velocity.x, y: current.velocity.y, label: 'v', color: '#177363', scale: span*.18/maxSpeed, unit: 'm/s' },
+      velocity_x: { x: current.velocity.x, y: 0, label: 'vₓ', color: '#285fb4', scale: span*.18/maxSpeed, unit: 'm/s' },
+      velocity_y: { x: 0, y: current.velocity.y, label: 'vᵧ', color: '#a63e63', scale: span*.18/maxSpeed, unit: 'm/s' },
+      gravity: { x: 0, y: -scene.gravity, label: 'g', color: '#925d14', scale: span*.14/scene.gravity, unit: 'm/s²' },
+    };
+    return [{ ...values[a.quantity], id: a.quantity }];
+  });
+  return <group>
+    <Line points={path.length > 1 ? path : [path[0], path[0]]} color="#c6cccb" lineWidth={1.5} />
+    <Line points={travelled} color={multiple ? color : '#b77713'} lineWidth={2.5} />
+    <mesh position={origin} renderOrder={20}><sphereGeometry args={[radius, 24, 16]} />
+      <meshStandardMaterial depthTest={false} color={annotations.some(a => a.quantity === 'highlight') ? '#e8b333' : ended && multiple ? '#697c7a' : color} /></mesh>
+    {multiple && <Label position={origin.clone().add(new THREE.Vector3(span*.015, span*.02, 0))}
+      text={`${simulation.particle_id}${ended ? ' · impact' : ''}`} id={`particle-${simulation.particle_id}`} color={color} />}
+    {vectors.map(v => {
+      const direction = new THREE.Vector3(v.x, v.y, 0), magnitude = direction.length();
+      const tip = origin.clone().add(direction.clone().multiplyScalar(v.scale));
+      const back = direction.clone().normalize().multiplyScalar(-Math.min(span*.014, magnitude*v.scale*.3));
+      const perpendicular = new THREE.Vector3(-back.y, back.x, 0).multiplyScalar(.5);
+      return <group key={v.id}>
+        {magnitude > 1e-8 && <>
+          <Line points={[origin, tip]} color={v.color} lineWidth={2} depthTest={false} renderOrder={10} />
+          <Line points={[tip.clone().add(back).add(perpendicular), tip, tip.clone().add(back).sub(perpendicular)]}
+            color={v.color} lineWidth={2} depthTest={false} renderOrder={10} />
+        </>}
+        <Label position={tip} text={`${multiple ? simulation.particle_id + ': ' : ''}${v.label} = ${(v.id === 'velocity_y' ? v.y : v.id === 'velocity_x' ? v.x : magnitude).toFixed(2)} ${v.unit}`}
+          color={v.color} id={multiple ? `${simulation.particle_id}-${v.id}` : v.id} />
+      </group>;
+    })}
+  </group>;
+}
+
 function World({ bundle, time, fit, showMeasurements = true }: { bundle: Bundle; time: number; fit: number; showMeasurements?: boolean }) {
   const { camera, size, gl } = useThree();
   const controls = useRef<Controls>(null);
   const { meshes, simulation, scene } = bundle;
+  const tracks = useMemo(() => bundle.tracks ?? [simulation], [bundle.tracks, simulation]);
   const measurement = useMemo(() => staircaseMeasurements(bundle), [bundle]);
   const current = sampleAt(simulation.samples, time);
   const bounds = useMemo(() => {
-    const flight = new THREE.Box3().setFromPoints(simulation.samples.map(p => new THREE.Vector3(p.position.x, p.position.y, 0)));
+    const samples = tracks.flatMap(t => t.samples);
+    const flight = new THREE.Box3().setFromPoints(samples.map(p => new THREE.Vector3(p.position.x, p.position.y, 0)));
     const padding = Math.max(flight.max.x-flight.min.x, flight.max.y-flight.min.y, 1)*0.15;
     const points = meshes.flatMap(m => m.kind !== "ground"
       ? m.vertices.map(v => new THREE.Vector3(...v))
@@ -122,11 +172,11 @@ function World({ bundle, time, fit, showMeasurements = true }: { bundle: Bundle;
         return lo <= hi ? [new THREE.Vector3(lo, m.segment[0].y, 0), new THREE.Vector3(hi, m.segment[0].y, 0)]
           : m.segment.map(p => new THREE.Vector3(p.x, p.y, 0));
       })());
-    points.push(...simulation.samples.map(p => new THREE.Vector3(p.position.x, p.position.y, 0)));
-    const measuredPoints = (simulation.measurements ?? []).flatMap(m => m.points.map(p => new THREE.Vector3(p.x, p.y, 0)));
+    points.push(...samples.map(p => new THREE.Vector3(p.position.x, p.position.y, 0)));
+    const measuredPoints = tracks.flatMap(t => (t.measurements ?? []).flatMap(m => m.points.map(p => new THREE.Vector3(p.x, p.y, 0))));
     points.push(...measuredPoints);
     // Frame the physical flight, not the artificial base of continuing stairs.
-    if (measurement?.contact && meshes.length === 1) {
+    if (tracks.length === 1 && measurement?.contact && meshes.length === 1) {
       const { surface, start, contact, sign } = measurement;
       return new THREE.Box3().setFromPoints([
         ...simulation.samples.map(p => new THREE.Vector3(p.position.x, p.position.y, 0)),
@@ -136,12 +186,10 @@ function World({ bundle, time, fit, showMeasurements = true }: { bundle: Bundle;
       ]);
     }
     return new THREE.Box3().setFromPoints(points);
-  }, [meshes, simulation, measurement]);
+  }, [meshes, simulation, measurement, tracks]);
   const span = Math.max(bounds.max.x-bounds.min.x, bounds.max.y-bounds.min.y, 1);
   const { x: minX, y: minY, z: minZ } = bounds.min;
   const { x: maxX, y: maxY, z: maxZ } = bounds.max;
-  const annotations = scene.annotations.filter(a => a.target === simulation.particle_id);
-  const maxSpeed = useMemo(() => Math.max(1, ...simulation.samples.map(s => Math.hypot(s.velocity.x, s.velocity.y))), [simulation]);
   const origin = new THREE.Vector3(current.position.x, current.position.y, 0);
   useEffect(() => {
     const center = new THREE.Vector3((minX+maxX)/2, (minY+maxY)/2, (minZ+maxZ)/2);
@@ -165,7 +213,14 @@ function World({ bundle, time, fit, showMeasurements = true }: { bundle: Bundle;
     gl.domElement.dataset.particle = JSON.stringify([current.position.x, current.position.y]);
     gl.domElement.dataset.particleScreen = JSON.stringify([(projected.x+1)*size.width/2, (1-projected.y)*size.height/2]);
     gl.domElement.dataset.time = String(current.t);
+    gl.domElement.dataset.sceneTime = String(time);
     gl.domElement.dataset.trailPoints = String(travelled.length);
+    gl.domElement.dataset.particles = JSON.stringify(tracks.map(track => {
+      const sample = sampleAt(track.samples, time);
+      const screen = new THREE.Vector3(sample.position.x, sample.position.y, 0).project(camera);
+      return { id: track.particle_id, position: sample.position, status: trackStatus(track, time),
+        screen: [(screen.x+1)*size.width/2, (1-screen.y)*size.height/2] };
+    }));
     gl.domElement.dataset.camera = JSON.stringify({ position: camera.position.toArray(),
       rotation: camera.quaternion.toArray(), zoom: (camera as THREE.OrthographicCamera).zoom,
       target: controls.current?.target.toArray() });
@@ -177,21 +232,12 @@ function World({ bundle, time, fit, showMeasurements = true }: { bundle: Bundle;
   const nextSample = simulation.samples.findIndex(s => s.t > time);
   const travelled = path.slice(0, nextSample === -1 ? path.length : Math.max(1, nextSample));
   travelled.push(origin);
-  const vectors = annotations.flatMap(a => {
-    if (a.quantity === "highlight") return [];
-    const values = {
-      velocity: { x: current.velocity.x, y: current.velocity.y, label: "v", color: "#177363", scale: span*0.18/maxSpeed, unit: "m/s" },
-      velocity_x: { x: current.velocity.x, y: 0, label: "vₓ", color: "#285fb4", scale: span*0.18/maxSpeed, unit: "m/s" },
-      velocity_y: { x: 0, y: current.velocity.y, label: "vᵧ", color: "#a63e63", scale: span*0.18/maxSpeed, unit: "m/s" },
-      gravity: { x: 0, y: -scene.gravity, label: "g", color: "#925d14", scale: span*0.14/scene.gravity, unit: "m/s²" },
-    };
-    return [{ ...values[a.quantity], id: a.quantity }];
-  });
   return <>
     <ambientLight intensity={1.5} /><directionalLight position={[span,span,span*2]} intensity={2} />
     {meshes.map(m => <Surface key={m.id} spec={m} active={scene.annotations.some(a => a.target === m.id && a.quantity === "highlight")} />)}
-    <Line points={path.length > 1 ? path : [path[0], path[0]]} color="#c6cccb" lineWidth={1.5} />
-    <Line points={travelled} color="#b77713" lineWidth={2.5} />
+    {tracks.map((track, index) => <ParticleTrack key={track.particle_id} simulation={track} scene={scene}
+      time={time} span={span} index={index} multiple={tracks.length > 1}
+      radius={measurement ? Math.min(span*.006, measurement.surface.run*.1, measurement.surface.rise*.1) : span*.008} />)}
     {showMeasurements && (simulation.measurements ?? []).map(spec => <Measurement key={spec.id} spec={spec} span={span} z={maxZ+0.03} />)}
     {measurement && (() => {
       const { surface: s, sign, step, contact, faceStart, faceEnd, faceKind, corner } = measurement;
@@ -206,23 +252,6 @@ function World({ bundle, time, fit, showMeasurements = true }: { bundle: Bundle;
         </>}
       </group>;
     })()}
-    <mesh position={origin} renderOrder={20}><sphereGeometry args={[measurement ? Math.min(span*0.006, measurement.surface.run*0.1, measurement.surface.rise*0.1) : span*0.008, 24, 16]} />
-      <meshStandardMaterial depthTest={false} color={annotations.some(a => a.quantity === "highlight") ? "#e8b333" : "#194d48"} /></mesh>
-    {vectors.map(v => {
-      const direction = new THREE.Vector3(v.x, v.y, 0);
-      const magnitude = direction.length();
-      const tip = origin.clone().add(direction.clone().multiplyScalar(v.scale));
-      const back = direction.clone().normalize().multiplyScalar(-Math.min(span*0.014, magnitude*v.scale*0.3));
-      const perpendicular = new THREE.Vector3(-back.y, back.x, 0).multiplyScalar(0.5);
-      return <group key={v.id}>
-        {magnitude > 1e-8 && <>
-          <Line points={[origin, tip]} color={v.color} lineWidth={2} depthTest={false} renderOrder={10} />
-          <Line points={[tip.clone().add(back).add(perpendicular), tip, tip.clone().add(back).sub(perpendicular)]} color={v.color} lineWidth={2} depthTest={false} renderOrder={10} />
-        </>}
-        <Label position={tip} text={`${v.label} = ${(v.id === "velocity_y" ? v.y : v.id === "velocity_x" ? v.x : magnitude).toFixed(2)} ${v.unit}`}
-          color={v.color} id={v.id} />
-      </group>;
-    })}
     <SceneLabelLayout />
     <OrbitControls ref={controls} enableRotate enableDamping={false}
       mouseButtons={{ LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }}

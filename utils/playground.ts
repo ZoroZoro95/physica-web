@@ -24,7 +24,19 @@ export type Simulation = {
     touching_faces?: { surface_id: string; face: string }[] };
   measurements?: ResolvedMeasurement[];
 };
-export type Bundle = { scene: Scene; meshes: MeshSpec[]; simulation: Simulation };
+export type SceneSimulation = { scene_id: string; revision: number; duration: number;
+  interaction: 'independent'; tracks: Simulation[] };
+export type Bundle = { scene: Scene; meshes: MeshSpec[]; simulation: Simulation;
+  tracks?: Simulation[]; duration?: number; maxTime?: number };
+
+export function particleColor(index: number) {
+  return ['#194d48', '#285fb4', '#a63e63', '#925d14'][index % 4];
+}
+
+export function trackStatus(track: Simulation, time: number) {
+  return track.contact && time >= track.contact.time ? 'Contact' :
+    time >= track.samples.at(-1)!.t ? 'Time limit' : 'In flight';
+}
 
 export function contactDescription(contact: NonNullable<Simulation['contact']>) {
   const faces = contact.touching_faces ?? [];
@@ -60,10 +72,21 @@ export async function loadScene(input: unknown, particleId?: string, maxTime = 3
   const particle = scene.particles.find(p => p.id === particleId) ?? scene.particles[0];
   if (!particle) throw new Error("Add a particle before simulating this scene.");
   const geometry = await playground<{ meshes: MeshSpec[] }>("geometry", scene);
+  if (scene.particles.length > 1) {
+    const result = await playground<SceneSimulation>('simulations/scene', { scene, samples: 501, max_time: maxTime });
+    if (result.scene_id !== scene.id || result.revision !== scene.revision ||
+        result.tracks.length !== scene.particles.length ||
+        scene.particles.some(p => result.tracks.filter(t => t.particle_id === p.id &&
+          t.scene_id === scene.id && t.revision === scene.revision && t.samples.length > 0).length !== 1)) {
+      throw new Error('The scene and particle tracks do not match.');
+    }
+    return { scene, meshes: geometry.meshes, simulation: result.tracks.find(t => t.particle_id === particle.id)!,
+      tracks: result.tracks, duration: result.duration, maxTime };
+  }
   const simulation = await playground<Simulation>("simulations", {
     scene, particle_id: particle.id, samples: 501, max_time: maxTime,
   });
-  return { scene, meshes: geometry.meshes, simulation };
+  return { scene, meshes: geometry.meshes, simulation, maxTime };
 }
 
 /** Interpolate returned samples for playback; do not solve a second trajectory. */
