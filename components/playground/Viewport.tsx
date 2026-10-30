@@ -6,7 +6,7 @@ import { Html, Line, OrbitControls } from "@react-three/drei";
 import type { OrbitControls as Controls } from "three-stdlib";
 import * as THREE from "three";
 import SceneLabelLayout from "@/components/SceneLabelLayout";
-import { sampleAt, particleColor, trackStatus, type Bundle, type MeshSpec, type ResolvedMeasurement, type Simulation, type Scene } from "@/utils/playground";
+import { playbackSample, particleColor, trackStatus, type Bundle, type MeshSpec, type ResolvedMeasurement, type Simulation, type Scene } from "@/utils/playground";
 import { staircaseMeasurements } from "@/utils/playgroundMeasurements";
 
 function Dimension({ a, b, label, id, labelAt, head }: {
@@ -106,7 +106,8 @@ function Surface({ spec, active }: { spec: MeshSpec; active: boolean }) {
 function ParticleTrack({ simulation, scene, time, span, radius, index, multiple }: {
   simulation: Simulation; scene: Scene; time: number; span: number; radius: number; index: number; multiple: boolean;
 }) {
-  const current = sampleAt(simulation.samples, time);
+  const current = playbackSample(simulation, time);
+  const waiting = trackStatus(simulation, time) === 'Waiting';
   const origin = new THREE.Vector3(current.position.x, current.position.y, 0);
   const path = simulation.samples.map(s => new THREE.Vector3(s.position.x, s.position.y, 0));
   const next = simulation.samples.findIndex(s => s.t > time);
@@ -117,7 +118,7 @@ function ParticleTrack({ simulation, scene, time, span, radius, index, multiple 
   const ended = !!simulation.contact && time > simulation.contact.time;
   const color = multiple ? particleColor(index) : '#194d48';
   const vectors = annotations.flatMap(a => {
-    if (a.quantity === 'highlight' || (multiple && ended)) return [];
+    if (a.quantity === 'highlight' || waiting || (multiple && ended)) return [];
     const values = {
       velocity: { x: current.velocity.x, y: current.velocity.y, label: 'v', color: '#177363', scale: span*.18/maxSpeed, unit: 'm/s' },
       velocity_x: { x: current.velocity.x, y: 0, label: 'vₓ', color: '#285fb4', scale: span*.18/maxSpeed, unit: 'm/s' },
@@ -128,11 +129,11 @@ function ParticleTrack({ simulation, scene, time, span, radius, index, multiple 
   });
   return <group>
     <Line points={path.length > 1 ? path : [path[0], path[0]]} color="#c6cccb" lineWidth={1.5} />
-    <Line points={travelled} color={multiple ? color : '#b77713'} lineWidth={2.5} />
+    {!waiting && <Line points={travelled} color={multiple ? color : '#b77713'} lineWidth={2.5} />}
     <mesh position={origin} renderOrder={20}><sphereGeometry args={[radius, 24, 16]} />
       <meshStandardMaterial depthTest={false} color={annotations.some(a => a.quantity === 'highlight') ? '#e8b333' : ended && multiple ? '#697c7a' : color} /></mesh>
     {multiple && <Label position={origin.clone().add(new THREE.Vector3(span*.015, span*.02, 0))}
-      text={`${simulation.particle_id}${ended ? ' · impact' : ''}`} id={`particle-${simulation.particle_id}`} color={color} />}
+      text={`${simulation.particle_id}${waiting ? ' · waiting' : ended ? ' · impact' : ''}`} id={`particle-${simulation.particle_id}`} color={color} />}
     {vectors.map(v => {
       const direction = new THREE.Vector3(v.x, v.y, 0), magnitude = direction.length();
       const tip = origin.clone().add(direction.clone().multiplyScalar(v.scale));
@@ -157,7 +158,7 @@ function World({ bundle, time, fit, showMeasurements = true }: { bundle: Bundle;
   const { meshes, simulation, scene } = bundle;
   const tracks = useMemo(() => bundle.tracks ?? [simulation], [bundle.tracks, simulation]);
   const measurement = useMemo(() => staircaseMeasurements(bundle), [bundle]);
-  const current = sampleAt(simulation.samples, time);
+  const current = playbackSample(simulation, time);
   const bounds = useMemo(() => {
     const samples = tracks.flatMap(t => t.samples);
     const flight = new THREE.Box3().setFromPoints(samples.map(p => new THREE.Vector3(p.position.x, p.position.y, 0)));
@@ -216,9 +217,9 @@ function World({ bundle, time, fit, showMeasurements = true }: { bundle: Bundle;
     gl.domElement.dataset.sceneTime = String(time);
     gl.domElement.dataset.trailPoints = String(travelled.length);
     gl.domElement.dataset.particles = JSON.stringify(tracks.map(track => {
-      const sample = sampleAt(track.samples, time);
+      const sample = playbackSample(track, time);
       const screen = new THREE.Vector3(sample.position.x, sample.position.y, 0).project(camera);
-      return { id: track.particle_id, position: sample.position, status: trackStatus(track, time),
+      return { id: track.particle_id, position: sample.position, velocity: sample.velocity, status: trackStatus(track, time),
         screen: [(screen.x+1)*size.width/2, (1-screen.y)*size.height/2] };
     }));
     gl.domElement.dataset.camera = JSON.stringify({ position: camera.position.toArray(),

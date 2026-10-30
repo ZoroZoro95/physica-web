@@ -3,7 +3,7 @@ export type Quantity = "velocity" | "velocity_x" | "velocity_y" | "gravity" | "h
 export type Scene = {
   schema_version: "1"; id: string; revision: number; gravity: number;
   surfaces: unknown[];
-  particles: { id: string; position: XY; velocity: XY; launch_set: boolean }[];
+  particles: { id: string; position: XY; velocity: XY; launch_set: boolean; launch_time?: number }[];
   annotations: { target: string; quantity: Quantity }[];
   measurements?: unknown[] | null;
 };
@@ -18,7 +18,8 @@ export type MeshSpec = { id: string } & (
 );
 export type Sample = { t: number; position: XY; velocity: XY };
 export type Simulation = {
-  scene_id: string; revision: number; particle_id: string; status: "contact" | "time_limit";
+  scene_id: string; revision: number; particle_id: string; status: "contact" | "time_limit" | "waiting";
+  launch_time?: number;
   samples: Sample[];
   contact: null | { time: number; surface_id: string; face: string; position: XY; velocity: XY;
     touching_faces?: { surface_id: string; face: string }[] };
@@ -34,8 +35,16 @@ export function particleColor(index: number) {
 }
 
 export function trackStatus(track: Simulation, time: number) {
+  if (track.status === 'waiting' || time < (track.launch_time ?? 0)) return 'Waiting';
   return track.contact && time >= track.contact.time ? 'Contact' :
     time >= track.samples.at(-1)!.t ? 'Time limit' : 'In flight';
+}
+
+export function playbackSample(track: Simulation, time: number): Sample {
+  if (trackStatus(track, time) === 'Waiting') {
+    return { t: time, position: track.samples[0].position, velocity: { x: 0, y: 0 } };
+  }
+  return sampleAt(track.samples, time);
 }
 
 export function contactDescription(contact: NonNullable<Simulation['contact']>) {

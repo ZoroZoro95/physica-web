@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
-import { contactDescription, loadScene, playground, sampleAt, particleColor, trackStatus, type Bundle, type Generation, type Quantity, type Scene } from "@/utils/playground";
+import { contactDescription, loadScene, playground, playbackSample, particleColor, trackStatus, type Bundle, type Generation, type Quantity, type Scene } from "@/utils/playground";
 import styles from "./playground.module.css";
 
 const Viewport = dynamic(() => import("@/components/playground/Viewport"), { ssr: false });
@@ -53,11 +53,12 @@ export default function Playground() {
   const [question, setQuestion] = useState("");
   const [generating, setGenerating] = useState(false);
   const [generation, setGeneration] = useState<Generation | null>(null);
-  const [extra, setExtra] = useState({ x: 0, y: 40, speed: 10, angle: 30 });
+  const [extra, setExtra] = useState({ x: 0, y: 40, speed: 10, angle: 30, launch_time: 0 });
   const request = useRef(0);
   const file = useRef<HTMLInputElement>(null);
   const duration = bundle?.duration ?? bundle?.simulation.samples.at(-1)?.t ?? 0;
-  const current = bundle ? sampleAt(bundle.simulation.samples, time) : null;
+  const current = bundle ? playbackSample(bundle.simulation, time) : null;
+  const selectedParticle = bundle?.scene.particles.find(p => p.id === bundle.simulation.particle_id);
 
   async function replace(task: () => Promise<Bundle>, reset = true) {
     const token = ++request.current;
@@ -128,11 +129,22 @@ export default function Playground() {
       let n = 2;
       while (ids.has(`P${n}`)) n++;
       const id = `P${n}`;
-      const scene = await playground<Scene>('scenes/apply', { scene: bundle.scene, commands: [
+      let scene = await playground<Scene>('scenes/apply', { scene: bundle.scene, commands: [
         { op: 'add_particle', id, position: { x: extra.x, y: extra.y } },
         { op: 'set_launch', particle_id: id, speed: extra.speed, direction: 'angle', angle_deg: extra.angle },
       ] });
+      if (extra.launch_time !== 0) scene = await playground<Scene>('scenes/schedule', {
+        scene, particle_id: id, launch_time: extra.launch_time,
+      });
       return loadScene(scene, id, bundle.maxTime ?? (duration || 30));
+    });
+  }
+  function scheduleLaunch(launchTime: number) {
+    if (!bundle || busy) return;
+    void replace(async () => {
+      const scene = await playground<Scene>('scenes/schedule', { scene: bundle.scene,
+        particle_id: bundle.simulation.particle_id, launch_time: launchTime });
+      return loadScene(scene, bundle.simulation.particle_id, bundle.maxTime ?? (duration || 30));
     });
   }
   function download() {
@@ -195,6 +207,12 @@ export default function Playground() {
             }}>
             {bundle.scene.particles.map(p => <option key={p.id}>{p.id}</option>)}
           </select></label>
+          <form className={styles.schedule} key={`${selectedParticle?.id}-${selectedParticle?.launch_time ?? 0}`}
+            onSubmit={e => { e.preventDefault(); scheduleLaunch(Number(new FormData(e.currentTarget).get('launch_time'))); }}>
+            <label>Launch time (s)<input aria-label="Selected launch time (s)" name="launch_time" type="number"
+              min={0} max={300} step="any" required defaultValue={selectedParticle?.launch_time ?? 0} disabled={busy} /></label>
+            <button type="submit" disabled={busy}>Set launch time</button>
+          </form>
           <h2>Vectors</h2>
           {([["velocity", "Velocity v"], ["velocity_x", "Horizontal vₓ"], ["velocity_y", "Vertical vᵧ"], ["gravity", "Gravity g"]] as [Quantity,string][]).map(([q, title]) =>
             <label className={styles.check} key={q}><input type="checkbox" disabled={busy}
@@ -208,10 +226,10 @@ export default function Playground() {
         </section>}
         {bundle && <form onSubmit={e => { e.preventDefault(); addParticle(); }}>
           <h2>Add particle</h2>
-          {([['x', 'Initial x (m)'], ['y', 'Initial y (m)'], ['speed', 'New speed (m/s)'], ['angle', 'New angle (°)']] as const).map(([key, title]) =>
+          {([['x', 'Initial x (m)'], ['y', 'Initial y (m)'], ['speed', 'New speed (m/s)'], ['angle', 'New angle (°)'], ['launch_time', 'New launch time (s)']] as const).map(([key, title]) =>
             <label key={key}>{title}<input type="number" aria-label={title} step="any" required
-              min={key === 'speed' ? 0 : key === 'angle' ? -360 : -100000}
-              max={key === 'speed' ? 10000 : key === 'angle' ? 360 : 100000}
+              min={key === 'speed' || key === 'launch_time' ? 0 : key === 'angle' ? -360 : -100000}
+              max={key === 'launch_time' ? 300 : key === 'speed' ? 10000 : key === 'angle' ? 360 : 100000}
               value={extra[key]} onChange={e => setExtra({ ...extra, [key]: e.target.value === '' ? '' as unknown as number : Number(e.target.value) })} /></label>)}
           <button className={styles.primary} disabled={busy || bundle.scene.particles.length >= 16} type="submit">
             Add particle
@@ -243,7 +261,7 @@ export default function Playground() {
           {bundle ? <Viewport bundle={bundle} time={time} fit={fit} showMeasurements={showMeasurements} /> : <div className={styles.empty}>{busy ? "Loading scene…" : "No scene loaded"}</div>}
         </div>
         {bundle?.tracks && <div className={styles.legend} aria-label="Particle states">
-          <span>Independent flights · simultaneous launch · no body collisions</span>
+          <span>Independent flights · {bundle.scene.particles.some(p => (p.launch_time ?? 0) > 0) ? 'scheduled launches' : 'simultaneous launch'} · no body collisions</span>
           {bundle.tracks.map((track, index) => <span key={track.particle_id} data-testid={`state-${track.particle_id}`}>
             <i style={{ background: particleColor(index) }} />{track.particle_id}: {trackStatus(track, time)}
           </span>)}
@@ -264,6 +282,10 @@ export default function Playground() {
           {current && [["x", current.position.x, "m"], ["y", current.position.y, "m"], ["vₓ", current.velocity.x, "m/s"], ["vᵧ", current.velocity.y, "m/s"]].map(([name,value,unit]) =>
             <div key={name}><dt>{name}</dt><dd>{Number(value).toFixed(2)} <small>{unit}</small></dd></div>)}
         </dl>
+        {bundle && trackStatus(bundle.simulation, time) === 'Waiting' &&
+          <p className={styles.result}>Waiting at launch point until t = {(bundle.simulation.launch_time ?? 0).toFixed(2)} s.</p>}
+        {bundle && (bundle.simulation.launch_time ?? 0) > 0 && trackStatus(bundle.simulation, time) !== 'Waiting' &&
+          <p className={styles.result}>Launched at t = {bundle.simulation.launch_time!.toFixed(2)} s · Flight elapsed: {(Math.min(time, bundle.simulation.samples.at(-1)!.t)-bundle.simulation.launch_time!).toFixed(2)} s</p>}
         {bundle?.tracks && bundle.simulation.contact && time >= bundle.simulation.contact.time &&
           <p className={styles.result}>Impact marker. Velocity readouts are at first contact; post-impact motion is not simulated.</p>}
         {bundle && <footer className={styles.result} data-testid="result">

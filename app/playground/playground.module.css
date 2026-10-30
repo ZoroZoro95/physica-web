@@ -16,6 +16,7 @@
 .sidebar .primary { background: #226e60; border-color: #226e60; color: #fff; width: 100%; margin-top: 12px; }
 .annotations { border-top: 1px solid #d8e1df; margin-top: 24px; }
 .sidebar .check { display: flex; align-items: center; gap: 10px; color: #223637; }
+.schedule button { align-self: end; margin-bottom: 14px; }
 .check input { width: 16px; height: 16px; accent-color: #226e60; }
 .stage { min-width: 0; padding: 16px 24px 24px; }
 .questionForm { display: grid; gap: 10px; padding: 12px 0 18px; border-bottom: 1px solid #cedbd7; }
