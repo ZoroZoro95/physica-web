@@ -25,10 +25,12 @@ export type Simulation = {
     touching_faces?: { surface_id: string; face: string }[] };
   measurements?: ResolvedMeasurement[];
 };
+export type Encounter = { particle_ids: [string, string]; kind: 'meeting' | 'coincident';
+  time: number; end_time: number; position: XY };
 export type SceneSimulation = { scene_id: string; revision: number; duration: number;
-  interaction: 'independent'; tracks: Simulation[] };
+  interaction: 'independent'; tracks: Simulation[]; encounters?: Encounter[] };
 export type Bundle = { scene: Scene; meshes: MeshSpec[]; simulation: Simulation;
-  tracks?: Simulation[]; duration?: number; maxTime?: number };
+  tracks?: Simulation[]; duration?: number; maxTime?: number; encounters?: Encounter[] };
 
 export function particleColor(index: number) {
   return ['#194d48', '#285fb4', '#a63e63', '#925d14'][index % 4];
@@ -90,7 +92,7 @@ export async function loadScene(input: unknown, particleId?: string, maxTime = 3
       throw new Error('The scene and particle tracks do not match.');
     }
     return { scene, meshes: geometry.meshes, simulation: result.tracks.find(t => t.particle_id === particle.id)!,
-      tracks: result.tracks, duration: result.duration, maxTime };
+      tracks: result.tracks, duration: result.duration, maxTime, encounters: result.encounters };
   }
   const simulation = await playground<Simulation>("simulations", {
     scene, particle_id: particle.id, samples: 501, max_time: maxTime,

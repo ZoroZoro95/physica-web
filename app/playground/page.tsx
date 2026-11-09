@@ -278,6 +278,27 @@ export default function Playground() {
             <option value={0.25}>0.25×</option><option value={0.5}>0.5×</option><option value={1}>1×</option><option value={2}>2×</option>
           </select>
         </div>
+        {bundle?.tracks && <section className={styles.encounters} aria-label="Free-flight meetings">
+          <h2>Free-flight meetings</h2>
+          {bundle.encounters === undefined ? <p>Meeting data unavailable from this API version.</p>
+            : bundle.encounters.length === 0 ? <p>No meetings during overlapping flights.</p>
+            : <ul>{bundle.encounters.map((event, index) => {
+              const active = event.kind === 'coincident' ? time >= event.time && time <= event.end_time
+                : Math.abs(time-event.time) < 1e-10;
+              const jump = (t: number) => { setPlaying(false); setTime(t); };
+              return <li key={`${event.particle_ids.join('-')}-${event.time}`} data-testid={`encounter-${index}`} data-active={active}>
+                <div><strong>{event.particle_ids.join(' + ')} · {event.kind === 'coincident' ? 'Moving together' : 'Meeting'}</strong>
+                  <span>{event.time.toFixed(6)}{event.kind === 'coincident' ? ` – ${event.end_time.toFixed(6)}` : ''} s</span>
+                  <small>{event.kind === 'coincident' ? 'Start: ' : ''}x = {event.position.x.toFixed(3)} m · y = {event.position.y.toFixed(3)} m</small></div>
+                <div className={styles.actions}>
+                  <button disabled={busy} onClick={() => jump(event.time)}
+                    aria-label={`Jump to ${event.particle_ids.join(' and ')} ${event.kind === 'coincident' ? 'interval start' : 'meeting'}`}>{event.kind === 'coincident' ? 'Start' : 'Go to meeting'}</button>
+                  {event.kind === 'coincident' && <button disabled={busy} onClick={() => jump(event.end_time)}
+                    aria-label={`Jump to ${event.particle_ids.join(' and ')} interval end`}>End</button>}
+                </div>
+              </li>;
+            })}</ul>}
+        </section>}
         <dl className={styles.readouts}>
           {current && [["x", current.position.x, "m"], ["y", current.position.y, "m"], ["vₓ", current.velocity.x, "m/s"], ["vᵧ", current.velocity.y, "m/s"]].map(([name,value,unit]) =>
             <div key={name}><dt>{name}</dt><dd>{Number(value).toFixed(2)} <small>{unit}</small></dd></div>)}
