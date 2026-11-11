@@ -87,7 +87,16 @@ export default function Playground() {
         if (!scene || !simulation || !simulation.samples.length || simulation.scene_id !== scene.id || simulation.revision !== scene.revision) {
           throw new Error("The generated scene and simulation do not match. The previous scene is unchanged.");
         }
-        setBundle({ scene, simulation, meshes }); setTime(0); setFit(n => n+1);
+        const ensemble = result.ensemble;
+        if (scene.particles.length > 1 && (!ensemble || ensemble.scene_id !== scene.id || ensemble.revision !== scene.revision ||
+            ensemble.tracks.length !== scene.particles.length || scene.particles.some(p =>
+              ensemble.tracks.filter(t => t.particle_id === p.id && t.scene_id === scene.id &&
+                t.revision === scene.revision && t.samples.length > 0).length !== 1))) {
+          throw new Error('Generated particle tracks do not match the scene. The previous scene is unchanged.');
+        }
+        setBundle({ scene, simulation, meshes, maxTime: result.max_time ?? undefined,
+          ...(ensemble ? { tracks: ensemble.tracks, duration: ensemble.duration, encounters: ensemble.encounters } : {}) });
+        setTime(0); setFit(n => n+1);
       }
     } catch (e) {
       if (token === request.current) { setGeneration(null); setError(e instanceof Error ? e.message : "Generation failed. The previous scene is unchanged."); }

@@ -61,6 +61,7 @@ export type Generation = {
   status: "review" | "needs_clarification" | "unsupported" | "failed";
   reason: string; assumptions: string[]; report_id: string;
   scene: Scene | null; simulation: Simulation | null; meshes: MeshSpec[];
+  ensemble?: SceneSimulation | null; max_time?: number | null;
 };
 
 export async function playground<T>(path: string, body: unknown, timeout = 15000): Promise<T> {

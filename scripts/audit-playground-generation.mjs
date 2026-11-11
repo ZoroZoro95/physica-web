@@ -22,6 +22,17 @@ const simulation = await api('simulations', { scene, particle_id: 'TestParticle'
 const { meshes } = await api('geometry', scene);
 const review = { status: 'review', reason: 'No contact within this horizon.', assumptions: ['Origin at launch.'],
   report_id: 'browser-fixture', scene, simulation, meshes };
+let multi = await api('scenes', { gravity: 10 });
+multi = await api('scenes/apply', { scene: multi, commands: [
+  { op: 'add_particle', id: 'P', position: { x: 0, y: 50 } },
+  { op: 'set_launch', particle_id: 'P', speed: 2, direction: 'angle', angle_deg: 0 },
+  { op: 'add_particle', id: 'Q', position: { x: 8, y: 50 } },
+  { op: 'set_launch', particle_id: 'Q', speed: 2, direction: 'angle', angle_deg: 180 },
+] });
+multi = await api('scenes/schedule', { scene: multi, particle_id: 'Q', launch_time: 1 });
+const ensemble = await api('simulations/scene', { scene: multi, max_time: 4, samples: 121 });
+const multiReview = { status: 'review', reason: 'Independent scheduled flights.', assumptions: [], report_id: 'multi-fixture',
+  scene: multi, simulation: ensemble.tracks[0], ensemble, max_time: 4, meshes: [] };
 const browser = await chromium.launch({ headless: true });
 try {
   for (const width of [1440, 390]) {
@@ -76,6 +87,28 @@ try {
     await page.screenshot({ path: `${out}/generation-${width}.png`, fullPage: true });
     assert.ok(colors > 20, `blank canvas at ${width}: ${colors} colors`);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    reply = multiReview;
+    await button.click();
+    await page.getByText('Independent scheduled flights.', { exact: true }).waitFor();
+    await page.waitForFunction(() => JSON.parse(document.querySelector('canvas').dataset.particles).length === 2);
+    assert.equal(Number(await page.getByLabel('Simulation time', { exact: true }).getAttribute('max')), 4);
+    assert.match(await page.getByTestId('state-Q').innerText(), /Waiting/);
+    await page.getByLabel('Particle', { exact: true }).selectOption('Q');
+    await page.getByLabel('Velocity v', { exact: true }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll('label')]
+      .find(label => label.textContent === 'Velocity v')?.querySelector('input')?.checked);
+    await page.waitForFunction(() => ![...document.querySelectorAll('button')].find(b => b.textContent === 'Generate scene')?.disabled);
+    assert.equal(Number(await page.getByLabel('Simulation time', { exact: true }).getAttribute('max')), 4);
+    const slider = page.getByLabel('Simulation time', { exact: true });
+    await slider.focus(); await slider.press('End');
+    await page.waitForTimeout(150);
+    assert.ok(JSON.parse(await canvas.getAttribute('data-particles')).every(p => p.status === 'Time limit'));
+    reply = { ...multiReview, ensemble: { ...ensemble, tracks: [ensemble.tracks[0]] } };
+    await button.click();
+    await page.getByRole('alert').getByText('Generated particle tracks do not match the scene. The previous scene is unchanged.').waitFor();
+    assert.equal(JSON.parse(await canvas.getAttribute('data-particles')).length, 2);
+    assert.equal(Number(await canvas.getAttribute('data-scene-time')), 4);
+    await page.screenshot({ path: `${out}/generated-multi-${width}.png`, fullPage: true });
     assert.deepEqual(errors, []);
     await page.close();
   }
